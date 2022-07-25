@@ -1,9 +1,10 @@
 use std::{
-    io::ErrorKind,
+    io::{self, prelude::*, BufReader, ErrorKind},
     env, 
-    fs,
+    fs::{self, File},
     process::Command, 
     collections::HashSet, 
+    path::Path,
 };
 use colored::Colorize;
 
@@ -14,7 +15,7 @@ fn install(flags: HashSet<char>, args: Vec<String>){
         .into_string()
         .unwrap() + "/.config/alps/";
 
-    fs::create_dir(homeDir.clone()).expect("Failed to create directory!");
+    fs::create_dir(homeDir.clone());
 
     if flags.contains(&'h'){
         println!("usage: {{-I}} [options] [package(s)]");
@@ -25,7 +26,7 @@ fn install(flags: HashSet<char>, args: Vec<String>){
     else if flags.contains(&'g'){
         for arg in args{
             match fs::create_dir(homeDir.clone() + &arg){
-                Ok(()) => println!("[+] Added group ({}) to config...", arg),
+                Ok(()) => println!("[+] Created group ({})...", arg),
                 Err(error) =>{
                     if error.kind() == ErrorKind::AlreadyExists{
                         println!("[!] Group ({}) already exists!", arg);
@@ -34,8 +35,31 @@ fn install(flags: HashSet<char>, args: Vec<String>){
             }
         }
     }
-    else if flags.contains(&'p'){ 
-
+    else if flags.contains(&'p') && !args.is_empty(){ 
+        if Path::new(&(homeDir.clone() + &args[0])).is_dir(){
+            let mut handle = fs::OpenOptions::new()
+                .write(true)
+                .append(true)
+                .open(homeDir.clone() + &args[0] + "/packages")
+                .unwrap_or_else(|error|{
+                    if error.kind() == ErrorKind::NotFound{
+                        let f = File::create(homeDir.clone() + &args[0] + "/packages").unwrap();
+                        println!("[+] Created package config for group ({})", args[0]);
+                        f
+                    } 
+                    else{
+                        panic!("Cannot open file!");
+                    }
+                });
+    
+            for package in &args[1..]{
+                writeln!(handle, "{}", package);
+                println!("[+] Added package ({}) to group ({})...", package, args[0]);
+            }
+        }
+        else{
+            println!("[!] Group ({}) does not exist! (use -h for help)", args[0]);
+        }
     }
         
 }
