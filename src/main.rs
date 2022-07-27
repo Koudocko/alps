@@ -4,7 +4,7 @@ use std::{
     fs::{self, File},
     process::Command, 
     collections::HashSet, 
-    path::Path,
+    path::Path, ops::RangeBounds,
 };
 use colored::Colorize;
 
@@ -39,33 +39,65 @@ fn install(flags: HashSet<char>, args: Vec<String>){
         if Path::new(&(homeDir.clone() + &args[0])).is_dir(){
             let mut handle = fs::OpenOptions::new()
                 .write(true)
-                .append(true)
-                .open(homeDir.clone() + &args[0] + "/packages")
-                .unwrap_or_else(|error|{
-                    if error.kind() == ErrorKind::NotFound{
-                        let f = File::create(homeDir.clone() + &args[0] + "/packages").unwrap();
-                        println!("[+] Created package config for group ({})", args[0]);
-                        f
-                    } 
-                    else{
-                        panic!("Cannot open file!");
-                    }
-                });
-    
+                .read(true)
+                .create(true)
+                .open(homeDir.clone() + &args[0] + "/" + &args[0] + ".conf")
+                .unwrap();
+
             for package in &args[1..]{
-                writeln!(handle, "{}", package);
-                println!("[+] Added package ({}) to group ({})...", package, args[0]);
+                handle.rewind().unwrap();
+                let mut text = String::new();
+                let mut uText = String::new();
+                handle.read_to_string(&mut text).unwrap();
+
+                let mut segments: Vec<&str> = text.split("[PACKAGES]").collect();
+                if segments.len() < 2{
+                    handle.seek(std::io::SeekFrom::End(0));
+                    handle.write_all(b"[PACKAGES]").unwrap();
+                }
+                handle.rewind().unwrap();
+                handle.read_to_string(&mut uText).unwrap();
+                segments = uText.split("[PACKAGES]").collect();
+
+                match segments.len(){
+                    3.. => panic!("Redefinition of label [PACKAGES]"),
+                    2 =>{
+                        let packages = segments[1].split("[PATHS]").next().unwrap();
+
+                        if packages.contains(package.as_str()){
+                            println!("[.] Package ({}) already added to group ({})!", package, args[0]);
+                        }
+                        else{
+                            handle.rewind().unwrap();
+                            handle.write_all(
+                                (segments[0].to_owned()
+                                + "[PACKAGES]\n" 
+                                + &package
+                                + " "
+                                + segments[1]
+                            ).as_bytes()).unwrap();
+                            println!("[+] Added package ({}) to group ({})...", package, args[0]);
+                        }
+                    }
+                    _ =>(),
+                }           
             }
         }
         else{
             println!("[!] Group ({}) does not exist! (use -h for help)", args[0]);
         }
     }
-        
+    else{
+        println!(
+            "{} invalid option! (use -h for help)",
+            "error:".red()
+         );
+         std::process::exit(1);
+    }
 }
 
 fn remove(flags: HashSet<char>, args: Vec<String>){
-
+    
 }
 
 fn sync(flags: HashSet<char>, args: Vec<String>){
@@ -100,6 +132,28 @@ fn sync(flags: HashSet<char>, args: Vec<String>){
     }*/
 }
 
+fn list(flags: HashSet<char>, args: Vec<String>){
+    if flags.contains(&'h'){
+        println!("usage: {{-L}} [options]"); 
+        println!("options:");
+        println!("-f\tinstall file to profile");
+        println!("-p\tinstall package to profile")
+    }
+    else if flags.contains(&'g'){
+        println!("g");
+    }
+    else if flags.contains(&'p'){
+        println!("p");
+    }
+    else{
+        println!(
+            "{} invalid option! (use -h for help)",
+            "error:".red()
+         );
+         std::process::exit(1);
+    }
+}
+
 fn main(){
     let p_args: Vec<_> = env::args().collect();
 
@@ -112,14 +166,14 @@ fn main(){
             if arg.as_bytes()[0] as char == '-'{
                 for flag in arg.chars().skip(1){
                     match flag{
-                        'I' | 'R' | 'S' =>{
+                        'I' | 'R' | 'S' | 'L' =>{
                             if mode == None{
                                 mode = Some(flag); 
                             }
                             else{
                                 println!(
                                     "{} only one operation may be used at a time",
-                                    format!("error:").red()
+                                    "error:".red()
                                 );
                                 std::process::exit(1);
                             }
@@ -129,7 +183,7 @@ fn main(){
                         }
                         op =>{ 
                             println!("{} invalid option -- '{}'",
-                                format!("error:").red(),
+                                "error:".red(),
                                 op    
                             );
                             std::process::exit(1);
@@ -145,6 +199,7 @@ fn main(){
             'I' => install(flags, args), 
             'R' => remove(flags, args),
             'S' => sync(flags, args),
+            'L' => list(flags, args),
             _ => (),
         }
     }
