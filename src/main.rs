@@ -11,7 +11,7 @@ use fs_extra::dir::{self, CopyOptions};
 
 fn initGroup(group: String, home_dir: String){
     fs::create_dir(home_dir.clone() + &group + "/configs");
-    fs::File::create(home_dir + &group + "/configs/" + &group + ".confg");;
+    fs::File::create(home_dir + &group + "/configs/" + &group + ".config");;
 }
 
 fn configAdd(home_dir: String, label: &str, args: Vec<String>, excludes: Vec<String>){
@@ -310,7 +310,7 @@ fn sync(flags: HashSet<char>, args: Vec<String>){
     }
     else if flags.contains(&'f'){
         if !args.is_empty(){
-            let (mut packages, mut text) = (String::new(), String::new());
+            let mut text = String::new();
     
             let mut handle = fs::OpenOptions::new()
                 .read(true)
@@ -326,8 +326,19 @@ fn sync(flags: HashSet<char>, args: Vec<String>){
                     text = text.split(exclude).next().unwrap();
                 }
 
-                for package in text.split_whitespace(){
-                    println!("{package}");
+                for path in text.split_whitespace(){
+                    let mut options = CopyOptions::new();
+                    options.copy_inside = true;
+                    options.overwrite = true;
+                    options.content_only = true;
+                    
+                    let md = fs::metadata(path).unwrap();
+                    if md.is_dir(){
+                        dir::copy(home_dir.clone() + &args[0] + "/configs", path, &options).unwrap();
+                    }
+                    else if md.is_file(){
+                        fs::copy(home_dir.clone() + &args[0] + "/configs/" + path.split("/").last().unwrap(), path).unwrap();
+                    }
                 }
 
             }
