@@ -4,83 +4,48 @@ use std::{
     path::Path, 
     process::Command,
     collections::HashSet, 
-    io::{prelude::*, ErrorKind, self},
+    io::{prelude::*, ErrorKind},
 }; 
 use colored::Colorize;
 use fs_extra::dir::{self, CopyOptions};
 
-fn initGroup(group: String, home_dir: String){
-    fs::create_dir(home_dir.clone() + &group + "/configs");
-    fs::File::create(home_dir + &group + "/configs/" + &group + ".config");;
+enum Exception<'a, 'b>{
+    MissingContent(&'a str),
+    InvalidGroup(&'b str),
+    MissingGroup,
 }
 
-fn configAdd(home_dir: String, label: &str, args: Vec<String>, excludes: Vec<String>){
-    let mut handle = fs::OpenOptions::new()
-        .write(true)
-        .read(true)
-        .create(true)
-        .open(home_dir.clone() + &args[0] + "/" + &args[0] + ".conf")
-        .unwrap();
-    
-    for package in &args[1..]{
-        handle.rewind().unwrap();
-        let (mut text, mut u_text) = (String::new(), String::new());
-        handle.read_to_string(&mut text).unwrap();
-    
-        let mut segments: Vec<&str> = text.split(label).collect();
-        if segments.len() < 2{
-            handle.seek(std::io::SeekFrom::End(0)).unwrap();
-            handle.write_all(label.as_bytes()).unwrap();
-        }
-        handle.rewind().unwrap();
-        handle.read_to_string(&mut u_text).unwrap();
-        segments = u_text.split(label).collect();
-    
-        match segments.len(){
-            3.. => panic!("Redefinition of label {}", label),
-            2 =>{
-                let mut packages = segments[1];
-                for exclude in &excludes{
-                    packages = packages.split(exclude).next().unwrap();
-                }
-                
-                let mut contains = false;
-                for has in packages.split_whitespace(){
-                    if package == has{
-                        println!(
-                            "{} Package ({}) already added to group ({})!", 
-                            "[!]".yellow(), 
-                            package.yellow(), 
-                            args[0].yellow()
-                        );
-                        contains = true;
-                        break;
-                    }
-                }
-                if !contains{
-                    handle.rewind().unwrap();
-                    handle.write_all(
-                        (segments[0].to_owned()
-                        + label + "\n" 
-                        + package
-                        + segments[1]
-                    ).as_bytes()).unwrap();
-                    println!(
-                        "{} Added package ({}) to group ({})...", 
-                        "[+]".green(), 
-                        package.green(), 
-                        args[0].green()
-                    );
-                }
+impl<'a, 'b> Exception<'a, 'b>{
+    fn handle(&self){
+        match self{
+            Exception::InvalidGroup(group)=>{
+                eprintln!(
+                    "{} Group ({}) does not exist! (use -h for help)", 
+                    "[!!!]".red(), 
+                    group.red()
+                );
             }
-            _ =>(),
-        }           
+            Exception::MissingContent(label)=>{
+                println!(
+                    "{} Label ({}) does not have content! (use -h for help)",
+                    "[!!!]".red(),
+                    label.red()
+                );
+            }
+            Exception::MissingGroup=>{
+                eprintln!(
+                    "{} Expected group name! (use -h for help)",
+                    "[!!!]".red()
+                );
+                std::process::exit(1);
+            }
+        }       
     }
 }
 
-fn install(flags: HashSet<char>, args: Vec<String>){
+fn read_label<'a, 'b>(label: &'a str, group:  &'b str)-> Result<String, Exception<'a, 'b>>{
     let excludes = vec![
-        String::from("[PACKAGES"),
+        String::from("[PACKAGES]"),
         String::from("[PATHS]"),
         String::from("[SCRIPTS]")
     ];
@@ -90,7 +55,111 @@ fn install(flags: HashSet<char>, args: Vec<String>){
         .into_string()
         .unwrap() + "/.config/alps/";
 
-    fs::create_dir(home_dir.clone());
+    if !group.is_empty(){
+        if Path::new(&(home_dir.clone() + group)).is_dir(){
+            let mut text = String::new();
+    
+            let mut handle = fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .open(home_dir + group + "/" + group + ".conf")
+                .unwrap();
+            handle.read_to_string(&mut text).unwrap();
+            let text: Vec<&str> = text.split(&label).collect();
+    
+            if text.len() > 1{
+                let mut text = text[1];
+    
+                for exclude in &excludes{
+                    text = text.split(exclude).next().unwrap();
+                }
+    
+                return Ok(text.to_string());
+            }
+            else{
+                return Err(Exception::MissingContent(label));
+            }
+        }
+        else{
+            return Err(Exception::InvalidGroup(group));
+        }
+    }
+    
+    Err(Exception::MissingGroup)
+}
+
+fn config_add(home_dir: String, label: &str, args: Vec<String>){
+    let excludes = vec![
+        String::from("[PACKAGES]"),
+        String::from("[PATHS]"),
+        String::from("[SCRIPTS]")
+    ];
+
+    for arg in &args[1..]{
+        let mut contains = false;
+
+        if let Ok(text) = read_label(label, &args[0]){
+            for entry in text.split_whitespace(){
+                if arg == entry{
+                    println!(
+                        "{} Entry ({}) already added to group ({}) under label ({})!", 
+                        "[!]".yellow(), 
+                        entry.yellow(), 
+                        args[0].yellow(),
+                        label.yellow()
+                    );               
+                    
+                    contains = true;
+                    break;
+                }
+            }
+        }
+
+        if !contains{
+            println!(
+                "{} Added entry ({}) to group ({}) under label ({})...", 
+                "[+]".green(), 
+                arg.green(), 
+                args[0].green(),
+                label.green()
+            );
+
+            let mut handle = fs::OpenOptions::new()
+                .write(true)
+                .open(home_dir.clone() + &args[0] + "/" + &args[0] + ".conf")
+                .unwrap();
+
+            let mut segments: Vec<String> = Vec::new();
+            for segment in &excludes{
+                let list = if let 
+                    Ok(list) = read_label(segment, &args[0]){list}
+                else{String::new()};
+
+                if segment == label{
+                    segments.push(segment.to_owned() + "\n" + arg + &list);
+                }
+                else{
+                    segments.push(segment.to_owned() + &list);
+                }
+            }
+            
+            for mut segment in segments{
+                if !segment.ends_with('\n'){
+                    segment.push('\n');
+                }
+                handle.write_all(segment.as_bytes()).unwrap();
+            }
+        }
+    }
+}
+
+fn install(flags: HashSet<char>, args: Vec<String>){
+    let home_dir = dirs::home_dir()
+        .unwrap()
+        .into_os_string()
+        .into_string()
+        .unwrap() + "/.config/alps/";
 
     if flags.contains(&'h'){
         println!("usage: {{-I}} [options] [package(s)]");
@@ -122,29 +191,29 @@ fn install(flags: HashSet<char>, args: Vec<String>){
         if !args.is_empty(){
             if Path::new(&(home_dir.clone() + &args[0])).is_dir(){
                 if args.len() >= 2{
-                    configAdd(home_dir,"[PACKAGES]", args, excludes);
+                    config_add(home_dir,"[PACKAGES]", args);
                 }
                 else{
-                    println!(
-                        "{} expected package(s)! (use -h for help)",
-                        "error:".red()
+                    eprintln!(
+                        "{} Expected package(s)! (use -h for help)",
+                        "[!!!]".red()
                     );
                     std::process::exit(1);
                 }
             }
             else{
-                println!(
-                    "{} group ({}) does not exist! (use -h for help)", 
-                    "error:".red(), 
+                eprintln!(
+                    "{} Group ({}) does not exist! (use -h for help)", 
+                    "[!!!]".red(), 
                     args[0].red()
                 );
                 std::process::exit(1);
             }
         }
         else{
-            println!(
-                "{} expected group name! (use -h for help)",
-                "error:".red()
+            eprintln!(
+                "{} Expected group name! (use -h for help)",
+                "[!!!]".red()
             );
             std::process::exit(1);
         }
@@ -163,9 +232,10 @@ fn install(flags: HashSet<char>, args: Vec<String>){
                                 .unwrap()
                             );
                         }
-                        Err(_)=> println!(
-                            "{} path does not exist!",
-                            "error:".red()
+                        Err(_)=> eprintln!(
+                            "{} Path to ({}) does not exist!",
+                            "[!!!]".red(),
+                            arg
                         ),
                     }
                 }
@@ -186,29 +256,29 @@ fn install(flags: HashSet<char>, args: Vec<String>){
                     }
                 }
 
-                configAdd(home_dir, "[PATHS]", paths, excludes);
+                config_add(home_dir, "[PATHS]", paths);
             }
             else{
-                println!(
-                    "{} group ({}) does not exist! (use -h for help)",
-                    "error:".red(),
+                eprintln!(
+                    "{} Group ({}) does not exist! (use -h for help)",
+                    "[!!!]".red(),
                     args[0].red()
                 );
                 std::process::exit(1);
             }
         }
         else{
-            println!(
-                "{} expected group name! (use -h for help)",
-                "error:".red()
+            eprintln!(
+                "{} Expected group name! (use -h for help)",
+                "[!!!]".red()
             );
             std::process::exit(1);
         }
     }
     else{
-        println!(
-            "{} invalid option! (use -h for help)",
-            "error:".red()
+        eprintln!(
+            "{} Invalid option! (use -h for help)",
+            "[!!!]".red()
          );
          std::process::exit(1);
     }
@@ -219,17 +289,6 @@ fn remove(flags: HashSet<char>, args: Vec<String>){
 }
 
 fn sync(flags: HashSet<char>, args: Vec<String>){
-    let excludes = vec![
-        String::from("[PACKAGES"),
-        String::from("[PATHS]"),
-        String::from("[SCRIPTS]")
-    ];
-    let home_dir = dirs::home_dir()
-        .unwrap()
-        .into_os_string()
-        .into_string()
-        .unwrap() + "/.config/alps/";
-
     if flags.contains(&'h'){
         println!("usage: {{-S}} [options] [group]");
         println!("options:");
@@ -238,94 +297,59 @@ fn sync(flags: HashSet<char>, args: Vec<String>){
         println!("-f\tsync only group files");
     }
     else if flags.contains(&'p'){
-        if args.is_empty(){
-            if Path::new(&(home_dir.clone() + &args[0])).is_dir(){
-                let (mut packages, mut text) = (String::new(), String::new());
-        
-                let mut handle = fs::OpenOptions::new()
-                    .read(true)
-                    .open(home_dir.clone() + &args[0] + "/" + &args[0] + ".conf")
-                    .unwrap();
-                handle.read_to_string(&mut text).unwrap();
-                let text: Vec<&str> = text.split("[PACKAGES]").collect();
-
-                if text.len() > 1{
-                    let mut text = text[1];
-    
-                    for exclude in &excludes{
-                        text = text.split(exclude).next().unwrap();
+        match read_label("[PACKAGES]", &args
+            .into_iter()
+            .next()
+            .unwrap_or_default()
+            ){
+            Ok(text)=>{
+                let mut packages = String::new(); 
+                   
+                for package in text.split_whitespace(){
+                    let handle = Command::new("pacman")
+                        .args(["-Q"])
+                        .arg(&package)
+                        .output()
+                        .expect("Failed to run command.");
+            
+                    if !handle.status.success(){
+                        println!(
+                            "{} Added package ({}) to install...", 
+                            "[+]".green(), 
+                            package.green()
+                        );
+                        packages += &(package.to_owned() + " ");
                     }
-                    
-                    for package in text.split_whitespace(){
-                        let handle = Command::new("pacman")
-                            .args(["-Q"])
-                            .arg(&package)
-                            .output()
-                            .expect("Failed to run command.");
-                
-                        if !handle.status.success(){
-                            println!(
-                                "{} Added package ({}) to install...", 
-                                "[+]".green(), 
-                                package.green()
-                            );
-                            packages += &(package.to_owned() + " ");
-                        }
-                        else{
-                            println!(
-                                "{} Package ({}) already exists!", 
-                                "[!]".yellow(), 
-                                package.yellow()
-                            );
-                        }
-                    }
-        
-                    if !packages.is_empty(){
-                        let mut handle = Command::new("sudo");
-                        let mut command = handle.args(["pacman", "-S"]);
-                
-                        for substr in packages.as_str().split_whitespace(){
-                            command = command.arg(substr);
-                        }
-                
-                        command.status().expect("Failed to run command");
+                    else{
+                        println!(
+                            "{} Package ({}) already exists!", 
+                            "[!]".yellow(), 
+                            package.yellow()
+                        );
                     }
                 }
+        
+                if !packages.is_empty(){
+                    let mut handle = Command::new("sudo");
+                    let mut command = handle.args(["pacman", "-S"]);
+            
+                    for substr in packages.as_str().split_whitespace(){
+                        command = command.arg(substr);
+                    }
+            
+                    command.status().expect("Failed to run command");
+                }
             }
-            else{
-                println!(
-                    "{} Group ({}) does not exist! (use -h for help)", 
-                    "[!]".yellow(), 
-                    args[0].yellow()
-                );
-            }
-        }
-        else{
-            println!(
-                "{} expected group name! (use -h for help)",
-                "error:".red()
-            );
-            std::process::exit(1);
+            Err(error)=> error.handle(),
         }
     }
     else if flags.contains(&'f'){
-        if !args.is_empty(){
-            let mut text = String::new();
-    
-            let mut handle = fs::OpenOptions::new()
-                .read(true)
-                .open(home_dir.clone() + &args[0] + "/" + &args[0] + ".conf")
-                .unwrap();
-            handle.read_to_string(&mut text).unwrap();
-            let text: Vec<&str> = text.split("[PATHS]").collect();           
-
-            if text.len() > 1{
-                let mut text = text[1];
-
-                for exclude in &excludes{
-                    text = text.split(exclude).next().unwrap();
-                }
-
+        match read_label("[PATHS]", &args
+            .into_iter()
+            .next()
+            .unwrap_or_default()
+            ){
+            Ok(text)=>{
                 for path in text.split_whitespace(){
                     let mut options = CopyOptions::new();
                     options.copy_inside = true;
@@ -334,26 +358,21 @@ fn sync(flags: HashSet<char>, args: Vec<String>){
                     
                     let md = fs::metadata(path).unwrap();
                     if md.is_dir(){
-                        dir::copy(home_dir.clone() + &args[0] + "/configs", path, &options).unwrap();
+                        print!("eek");
+                        //dir::copy(home_dir.clone() + &args[0] + "/configs", path, &options).unwrap();
                     }
                     else if md.is_file(){
-                        fs::copy(home_dir.clone() + &args[0] + "/configs/" + path.split("/").last().unwrap(), path).unwrap();
+                        //fs::copy(home_dir.clone() + &args[0] + "/configs/" + path.split("/").last().unwrap(), path).unwrap();
                     }
                 }
-
             }
-        }
-        else{
-            println!(
-                "{} expected group name! (user -h for help)",
-                "error:".red()
-            );
+            Err(error)=> error.handle(),
         }
     }
     else{
-        println!(
-            "{} invalid option! (use -h for help)",
-            "error:".red()
+        eprintln!(
+            "{} Invalid option! (use -h for help)",
+            "[!!!]".red()
          );
          std::process::exit(1);
     }
@@ -370,18 +389,19 @@ fn list(flags: HashSet<char>, args: Vec<String>){
         println!("g");
     }
     else if flags.contains(&'p'){
-        println!("p");
+        
     }
     else{
-        println!(
-            "{} invalid option! (use -h for help)",
-            "error:".red()
+        eprintln!(
+            "{} Invalid option! (use -h for help)",
+            "[!!!]".red()
          );
          std::process::exit(1);
     }
 }
 
-fn main(){
+
+fn parser(){
     let p_args: Vec<_> = env::args().collect();
 
     if p_args.len() > 1{
@@ -398,9 +418,9 @@ fn main(){
                                 mode = Some(flag); 
                             }
                             else{
-                                println!(
-                                    "{} only one operation may be used at a time",
-                                    "error:".red()
+                                eprintln!(
+                                    "{} Only one operation may be used at a time",
+                                    "[!!!]".red()
                                 );
                                 std::process::exit(1);
                             }
@@ -409,10 +429,10 @@ fn main(){
                             flags.insert(flag);
                         }
                         op =>{ 
-                            println!(
-                                "{} option ({}) not found! (use -h for help)",
-                                "error:".red(),
-                                op 
+                            eprintln!(
+                                "{} Option ({}) not found! (use -h for help)",
+                                "[!!!]".red(),
+                                op
                             );
                             std::process::exit(1);
                         }
@@ -431,4 +451,8 @@ fn main(){
             _ => (),
         }
     }
+}
+
+fn main(){
+    parser();
 }
