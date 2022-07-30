@@ -4,7 +4,7 @@ use std::{
     path::Path, 
     process::Command,
     collections::HashSet, 
-    io::{prelude::*, ErrorKind},
+    io::{prelude::*, ErrorKind}, 
 }; 
 use colored::Colorize;
 use fs_extra::dir::{self, CopyOptions};
@@ -85,7 +85,7 @@ fn read_label<'a, 'b>(label: &'a str, group:  &'b str)-> Result<String, Exceptio
             return Err(Exception::InvalidGroup(group));
         }
     }
-    
+
     Err(Exception::MissingGroup)
 }
 
@@ -289,6 +289,12 @@ fn remove(flags: HashSet<char>, args: Vec<String>){
 }
 
 fn sync(flags: HashSet<char>, args: Vec<String>){
+    let home_dir = dirs::home_dir()
+        .unwrap()
+        .into_os_string()
+        .into_string()
+        .unwrap() + "/.config/alps/";
+
     if flags.contains(&'h'){
         println!("usage: {{-S}} [options] [group]");
         println!("options:");
@@ -297,10 +303,9 @@ fn sync(flags: HashSet<char>, args: Vec<String>){
         println!("-f\tsync only group files");
     }
     else if flags.contains(&'p'){
-        match read_label("[PACKAGES]", &args
-            .into_iter()
-            .next()
-            .unwrap_or_default()
+        match read_label("[PACKAGES]", args
+            .get(0)
+            .unwrap_or(&String::new())
             ){
             Ok(text)=>{
                 let mut packages = String::new(); 
@@ -344,10 +349,9 @@ fn sync(flags: HashSet<char>, args: Vec<String>){
         }
     }
     else if flags.contains(&'f'){
-        match read_label("[PATHS]", &args
-            .into_iter()
-            .next()
-            .unwrap_or_default()
+        match read_label("[PATHS]", args
+            .get(0)
+            .unwrap_or(&String::new())
             ){
             Ok(text)=>{
                 for path in text.split_whitespace(){
@@ -358,11 +362,10 @@ fn sync(flags: HashSet<char>, args: Vec<String>){
                     
                     let md = fs::metadata(path).unwrap();
                     if md.is_dir(){
-                        print!("eek");
-                        //dir::copy(home_dir.clone() + &args[0] + "/configs", path, &options).unwrap();
+                        dir::copy(home_dir.clone() + &args[0] + "/configs", path, &options).unwrap();
                     }
                     else if md.is_file(){
-                        //fs::copy(home_dir.clone() + &args[0] + "/configs/" + path.split("/").last().unwrap(), path).unwrap();
+                        fs::copy(home_dir.clone() + &args[0] + "/configs/" + path.split("/").last().unwrap(), path).unwrap();
                     }
                 }
             }
@@ -378,7 +381,13 @@ fn sync(flags: HashSet<char>, args: Vec<String>){
     }
 }
 
-fn list(flags: HashSet<char>, args: Vec<String>){
+fn query(flags: HashSet<char>, args: Vec<String>){
+    let home_dir = dirs::home_dir()
+        .unwrap()
+        .into_os_string()
+        .into_string()
+        .unwrap() + "/.config/alps/";
+
     if flags.contains(&'h'){
         println!("usage: {{-L}} [options]"); 
         println!("options:");
@@ -386,10 +395,164 @@ fn list(flags: HashSet<char>, args: Vec<String>){
         println!("-p\tinstall package to profile")
     }
     else if flags.contains(&'g'){
-        println!("g");
+        //Credit Raforawesome (aka God)
+        let groups: Vec<fs::DirEntry> = fs::read_dir(home_dir).unwrap()
+            .filter(|entry|{
+                let entry = entry.as_ref().unwrap()
+                    .file_type().unwrap();
+
+                entry.is_dir()
+            }).map(|x| x.unwrap()).collect();
+
+        if !args.is_empty(){
+            let mut status = 0;
+
+            for arg in &args{
+                let mut contains = false;
+                for group in &groups{
+                    let group = &group.file_name().into_string().unwrap();
+
+                    if arg == group{
+                        println!(
+                            "{} Found group ({})...", 
+                            "[?]".blue(),
+                            group.blue()
+                        );                   
+    
+                        contains = true;
+                        break;
+                    }
+                }
+
+                if !contains{
+                    eprintln!(
+                        "{} Group ({}) not found!",
+                        "[!]".yellow(),
+                        arg.yellow()
+                    );
+                    status += 1;
+                }               
+            }
+
+            std::process::exit(status);
+        }
+        else{
+            for group in &groups{
+                let group = group.file_name().into_string().unwrap();
+
+                println!(
+                    "{} :: ({}) packages :: ({}) configs :: ({}) scripts", 
+                    group.blue(),
+                    if let Ok(text) = read_label("[PACKAGES]", &group){text.split_whitespace().count()}
+                        else{0},
+                    if let Ok(text) = read_label("[PATHS]", &group){text.split_whitespace().count()}
+                        else{0},
+                    if let Ok(text) = read_label("[SCRIPTS]", &group){text.split_whitespace().count()}
+                        else{0}
+                );
+            }
+            println!("({}) groups found...", groups.len());
+        }
     }
     else if flags.contains(&'p'){
-        
+        match read_label("[PACKAGES]", args
+            .get(0)
+            .unwrap_or(&String::new())
+        ){
+            Ok(text)=>{
+                if args.len() > 1{
+                    let mut status = 0;
+
+                    for arg in &args[1..]{
+                        let mut contains = false;
+                        for package in text.split_whitespace(){
+                            if arg == package{
+                                println!(
+                                    "{} Found package ({}) in group ({})...", 
+                                    "[?]".blue(),
+                                    package.blue(),
+                                    &args[0].blue()
+                                );
+                                
+                                contains = true;
+                                break;
+                            }
+                        }
+
+                        if !contains{
+                            eprintln!(
+                                "{} Package ({}) not found in group ({})!",
+                                "[!]".yellow(),
+                                arg.yellow(),
+                                &args[0].yellow()
+                            );
+                            status += 1;
+                        }
+                    }
+
+                    std::process::exit(status);
+                }
+                else{
+                    let mut count = 0;
+                    for package in text.split_whitespace(){
+                        print!("{}, ", package.blue());
+                        count += 1;
+                    }
+                    println!("({count}) packages found...");
+                }
+            }
+            Err(error)=> error.handle(),
+        }
+    }
+    else if flags.contains(&'f'){
+        match read_label("[PATHS]", args
+            .get(0)
+            .unwrap_or(&String::new())
+        ){
+            Ok(text)=>{
+                if args.len() > 1{
+                    let mut status = 0;
+
+                    for arg in &args[1..]{
+                        let mut contains = false;
+                        for path in text.split_whitespace(){
+                            if arg == path.split('/').last().unwrap(){
+                                println!(
+                                    "{} Found config ({}) in group ({})...", 
+                                    "[?]".blue(),
+                                    arg.blue(),
+                                    &args[0].blue()
+                                );
+                                
+                                contains = true;
+                                break;
+                            }
+                        }
+
+                        if !contains{
+                            eprintln!(
+                                "{} Config ({}) not found in group ({})!",
+                                "[!]".yellow(),
+                                arg.yellow(),
+                                &args[0].yellow()
+                            );
+                            status += 1;
+                        }
+                    }
+
+                    std::process::exit(status);
+                }
+                else{
+                    let mut count = 0;
+                    for  path in text.split_whitespace(){
+                        print!("{}, ", path.split('/').last().unwrap().blue());
+                        count += 1;
+                    }
+                    println!("({count}) configs found...");
+                }
+            }
+            Err(error)=> error.handle(),
+        }
     }
     else{
         eprintln!(
@@ -400,8 +563,14 @@ fn list(flags: HashSet<char>, args: Vec<String>){
     }
 }
 
-
 fn parser(){
+    fs::create_dir(dirs::home_dir()
+        .unwrap()
+        .into_os_string()
+        .into_string()
+        .unwrap() + "/.config/alps/"
+    );
+
     let p_args: Vec<_> = env::args().collect();
 
     if p_args.len() > 1{
@@ -413,7 +582,7 @@ fn parser(){
             if arg.as_bytes()[0] as char == '-'{
                 for flag in arg.chars().skip(1){
                     match flag{
-                        'I' | 'R' | 'S' | 'L' =>{
+                        'I' | 'R' | 'S' | 'Q' =>{
                             if mode == None{
                                 mode = Some(flag); 
                             }
@@ -447,7 +616,7 @@ fn parser(){
             'I' => install(flags, args), 
             'R' => remove(flags, args),
             'S' => sync(flags, args),
-            'L' => list(flags, args),
+            'Q' => query(flags, args),
             _ => (),
         }
     }
