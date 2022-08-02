@@ -92,6 +92,33 @@ impl Exception{
     }
 }
 
+fn reformat_config(labels: &Vec<String>, group: &str, home_dir: &str){
+    let mut config_text = String::new();
+
+    for label in labels{
+        config_text.push_str(&(label.to_owned() + "\n"));
+
+        if let Ok(text) = read_label(label, group, home_dir){
+            for entry in text.split_whitespace(){
+                config_text.push_str (&(entry.to_owned() + "\n"));
+            }
+        }
+
+        if label != labels.last().unwrap(){
+            config_text.push('\n');
+        }
+    }
+    config_text.push('\n');
+
+    let mut handle = fs::OpenOptions::new()
+        .truncate(true)
+        .write(true)
+        .open(home_dir.to_owned() + group + "/" + group + ".conf")
+        .unwrap();
+
+    handle.write_all(config_text.as_bytes()).unwrap();
+}
+
 fn copy_dir<S, D>(src: S, dst: D)
 where
    S: AsRef<Path>,
@@ -112,27 +139,22 @@ where
    }
 }
 
-fn read_label(label: &str, group:  &str)-> Result<String, Exception>{
+fn read_label(label: &str, group:  &str, home_dir: &str)-> Result<String, Exception>{
     let excludes = vec![
         String::from("[PACKAGES]"),
         String::from("[PATHS]"),
         String::from("[SCRIPTS]")
     ];
-    let home_dir = dirs::home_dir()
-        .unwrap()
-        .into_os_string()
-        .into_string()
-        .unwrap() + "/.config/alps/";
 
     if !group.is_empty(){
-        if Path::new(&(home_dir.clone() + group)).is_dir(){
+        if Path::new(&(home_dir.to_owned() + group)).is_dir(){
             let mut text = String::new();
     
             let mut handle = fs::OpenOptions::new()
                 .read(true)
                 .write(true)
                 .create(true)
-                .open(home_dir + group + "/" + group + ".conf")
+                .open(home_dir.to_owned() + group + "/" + group + ".conf")
                 .unwrap();
             handle.read_to_string(&mut text).unwrap();
             let text: Vec<&str> = text.split(&label).collect();
@@ -159,8 +181,8 @@ fn read_label(label: &str, group:  &str)-> Result<String, Exception>{
     }
 }
 
-fn config_add(home_dir: String, label: &str, args: Vec<String>, mode: i32)-> Result<(), Exception>{
-    if let Err(error) = read_label(label, args.get(0).unwrap_or(&String::new())){
+fn config_del(label: &str, args: Vec<String>, home_dir: &str)-> Result<(), Exception>{
+    if let Err(error) = read_label(label, args.get(0).unwrap_or(&String::new()), home_dir){
         return Err(error);
     }
 
@@ -174,11 +196,97 @@ fn config_add(home_dir: String, label: &str, args: Vec<String>, mode: i32)-> Res
         String::from("[SCRIPTS]")
     ];
 
+    reformat_config(&excludes, &args[0], home_dir);
+
     for arg in &args[1..]{
         let mut contains = false;
 
-        let handle = read_label(label, &args[0]);
-        match handle{
+        let readin = read_label(label, &args[0], home_dir);
+        match readin{
+            Ok(text) =>{
+                for entry in text.split_whitespace(){
+                    if arg == entry{
+                        println!(
+                            "{} Removing entry ({}) from group ({}) under label ({})!", 
+                            "[-]".green(), 
+                            entry.green(), 
+                            args[0].green(),
+                            label.green()
+                        );               
+                        
+                        contains = true;
+                        break;
+                    }
+                }
+            }
+            Err(error) => return Err(error),
+        }
+
+        if contains{
+            let mut handle = fs::OpenOptions::new()
+                .write(true)
+                .open(home_dir.to_owned() + &args[0] + "/" + &args[0] + ".conf")
+                .unwrap();
+
+            let mut segments: Vec<String> = Vec::new();
+            for segment in &excludes{
+                let list = if let 
+                    Ok(list) = read_label(segment, &args[0], home_dir){list.split(arg).collect::<String>()}
+                else{String::new()};
+
+                if segment == label{
+                    segments.push(segment.to_owned() + "\n" + &list);
+                }
+                else{
+                    segments.push(segment.to_owned() + &list);
+                }
+            }
+            
+            for mut segment in segments{
+                if !segment.ends_with('\n'){
+                    segment.push('\n');
+                }
+
+                handle.write_all(segment.as_bytes()).unwrap();
+            }
+        }
+        else{
+            eprintln!(
+                "{} Entry ({}) not found under group ({}) label ({})",
+                "[!]".yellow(),
+                arg.yellow(),
+                args[0].yellow(),
+                label.yellow()
+            )
+        }
+    }
+
+    reformat_config(&excludes, &args[0], home_dir);
+    Ok(())
+}
+
+fn config_add(label: &str, args: Vec<String>, home_dir: &str)-> Result<(), Exception>{
+    if let Err(error) = read_label(label, args.get(0).unwrap_or(&String::new()), home_dir){
+        return Err(error);
+    }
+
+    if args.len() < 2{
+        return Err(Exception::MissingArgs(label.to_string()));
+    }
+
+    let excludes = vec![
+        String::from("[PACKAGES]"),
+        String::from("[PATHS]"),
+        String::from("[SCRIPTS]")
+    ];
+
+    reformat_config(&excludes, &args[0], home_dir);
+
+    for arg in &args[1..]{
+        let mut contains = false;
+
+        let readin = read_label(label, &args[0], home_dir);
+        match readin{
             Ok(text) =>{
                 for entry in text.split_whitespace(){
                     if arg == entry{
@@ -209,13 +317,13 @@ fn config_add(home_dir: String, label: &str, args: Vec<String>, mode: i32)-> Res
 
             let mut handle = fs::OpenOptions::new()
                 .write(true)
-                .open(home_dir.clone() + &args[0] + "/" + &args[0] + ".conf")
+                .open(home_dir.to_owned() + &args[0] + "/" + &args[0] + ".conf")
                 .unwrap();
 
             let mut segments: Vec<String> = Vec::new();
             for segment in &excludes{
                 let list = if let 
-                    Ok(list) = read_label(segment, &args[0]){list}
+                    Ok(list) = read_label(segment, &args[0], home_dir){list}
                 else{String::new()};
 
                 if segment == label{
@@ -232,27 +340,14 @@ fn config_add(home_dir: String, label: &str, args: Vec<String>, mode: i32)-> Res
                 }
                 handle.write_all(segment.as_bytes()).unwrap();
             }
-
-            if mode == 1{
-                fs::create_dir(home_dir.clone() + &args[0] + "/configs");
-
-                for path in &args[1..]{
-                    copy_dir(path, home_dir.clone() + &args[0] + "/configs/" + path.split('/').last().unwrap());
-                }
-            }
         }
     }
 
+    reformat_config(&excludes, &args[0], home_dir);
     Ok(())
 }
 
-fn install(flags: HashSet<char>, args: Vec<String>)-> Result<(), Exception>{
-    let home_dir = dirs::home_dir()
-        .unwrap()
-        .into_os_string()
-        .into_string()
-        .unwrap() + "/.config/alps/";
-
+fn install(flags: HashSet<char>, args: Vec<String>, home_dir: &str)-> Result<(), Exception>{
     if flags.contains(&'h'){
         println!("usage: {{-I}} [options] [package(s)]");
         println!("options:");
@@ -262,7 +357,7 @@ fn install(flags: HashSet<char>, args: Vec<String>)-> Result<(), Exception>{
     } 
     else if flags.contains(&'g'){
         for arg in args{
-            match fs::create_dir(home_dir.clone() + &arg){
+            match fs::create_dir(home_dir.to_owned() + &arg){
                 Ok(()) => println!(
                     "{} Created group ({})...", 
                     "[+]".green(), 
@@ -281,10 +376,11 @@ fn install(flags: HashSet<char>, args: Vec<String>)-> Result<(), Exception>{
         }
     }
     else if flags.contains(&'p'){ 
-        return config_add(home_dir.clone(), "[PACKAGES]", args, 0);
+        return config_add("[PACKAGES]", args, home_dir);
     }
     else if flags.contains(&'f'){
-        let handle = read_label("[PATHS]", args.get(0).unwrap_or(&String::new()));
+        fs::create_dir(home_dir.to_owned() + &args[0] + "/configs");
+        let handle = read_label("[PATHS]", args.get(0).unwrap_or(&String::new()), home_dir);
 
         match handle{
             Ok(_) =>{
@@ -293,21 +389,82 @@ fn install(flags: HashSet<char>, args: Vec<String>)-> Result<(), Exception>{
                 for arg in &args[1..]{
                     match fs::canonicalize(std::path::PathBuf::from(arg)){
                         Ok(path) =>{
-                            paths.push(
-                                path.into_os_string()
-                                .into_string()
-                                .unwrap()
-                            );
+                            let path_str = path.clone().into_os_string().into_string().unwrap();
+
+                            paths.push(path_str.clone());
+
+                            let contains = fs::read_dir(home_dir.to_owned()
+                                + &args[0] 
+                                + "/configs/").unwrap()
+                            .map(|x|{
+                                x.unwrap().file_name().into_string().unwrap()}
+                            ).any(|group| group == *arg);
+
+                            if !contains{
+                                copy_dir(
+                                path, 
+                                home_dir.to_owned() + 
+                                    &args[0] + "/configs/" + 
+                                    path_str
+                                    .split('/')
+                                    .last()
+                                    .unwrap()
+                                );
+                            }
                         }
-                        Err(_) => eprintln!(
+                        Err(_) => println!(
                             "{} Path to ({}) does not exist!",
-                            "[!!!]".red(),
-                            arg
+                            "[!]".yellow(),
+                            arg.yellow()
                         ),
                     }
                 }
-        
-                return config_add(home_dir, "[PATHS]", paths, 1);
+
+                return config_add("[PATHS]", paths, home_dir);
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    else if flags.contains(&'s'){
+        fs::create_dir(home_dir.to_owned() + &args[0] + "/scripts");
+        let handle = read_label("[SCRIPTS]", args.get(0).unwrap_or(&String::new()), home_dir);
+
+        match handle{
+            Ok(_) =>{
+                for arg in &args[1..]{
+                    match fs::canonicalize(std::path::PathBuf::from(arg)){
+                        Ok(path) =>{
+                            let path_str = path.clone().into_os_string().into_string().unwrap();
+
+                            let contains = fs::read_dir(home_dir.to_owned() 
+                                + &args[0] 
+                                + "/configs/").unwrap()
+                            .map(|x|{
+                                x.unwrap().file_name().into_string().unwrap()}
+                            ).any(|group| group == *arg);
+
+
+                            if !contains{
+                                copy_dir(
+                                path, 
+                                home_dir.to_owned() + 
+                                    &args[0] + "/scripts/" + 
+                                    path_str
+                                    .split('/')
+                                    .last()
+                                    .unwrap()
+                                );
+                            }
+                        }
+                        Err(_) => println!(
+                            "{} Path to ({}) does not exist!",
+                            "[!]".yellow(),
+                            arg.yellow()
+                        ),
+                    }
+                }
+                
+                return config_add("[SCRIPTS]", args, home_dir);
             }
             Err(error) => return Err(error),
         }
@@ -323,17 +480,29 @@ fn install(flags: HashSet<char>, args: Vec<String>)-> Result<(), Exception>{
     Ok(())
 }
 
-fn remove(flags: HashSet<char>, args: Vec<String>)-> Result<(), Exception>{
+fn remove(flags: HashSet<char>, args: Vec<String>, home_dir: &str)-> Result<(), Exception>{
+    if flags.contains(&'h'){
+        println!("usage: {{-R}} [options] [group]");
+        println!("options:");
+        println!("-g\tsync entire group configuration");
+        println!("-p\tsync only group packages");
+        println!("-f\tsync only group files");       
+    }
+    else if flags.contains(&'p'){
+        return config_del("[PACKAGES]", args, home_dir);
+    }
+    else{
+        if flags.is_empty(){
+            return Err(Exception::MissingOption);
+        }
+
+        return Err(Exception::InvalidOption);
+    }
+
     Ok(())
 }
 
-fn sync(flags: HashSet<char>, args: Vec<String>)-> Result<(), Exception>{
-    let home_dir = dirs::home_dir()
-        .unwrap()
-        .into_os_string()
-        .into_string()
-        .unwrap() + "/.config/alps/";
-
+fn sync(flags: HashSet<char>, args: Vec<String>, home_dir: &str)-> Result<(), Exception>{
     if flags.contains(&'h'){
         println!("usage: {{-S}} [options] [group]");
         println!("options:");
@@ -344,7 +513,8 @@ fn sync(flags: HashSet<char>, args: Vec<String>)-> Result<(), Exception>{
     else if flags.contains(&'p'){
         match read_label("[PACKAGES]", args
             .get(0)
-            .unwrap_or(&String::new())
+            .unwrap_or(&String::new()),
+            home_dir
             ){
             Ok(text) =>{
                 let mut packages = String::new(); 
@@ -381,7 +551,21 @@ fn sync(flags: HashSet<char>, args: Vec<String>)-> Result<(), Exception>{
                         command = command.arg(substr);
                     }
             
-                    command.status().expect("Failed to run command");
+
+                    match command.status(){
+                        Ok(_) =>{
+                            println!(
+                                "{} Successfully synced packages!",
+                                "[~]".purple()
+                            )
+                        }
+                        Err(_) =>{
+                            eprintln!(
+                                "{} Failed to sync packages!",
+                                "[!]".yellow()
+                            );
+                        }
+                    }
                 }
             }
             Err(error) => return Err(error),
@@ -390,17 +574,18 @@ fn sync(flags: HashSet<char>, args: Vec<String>)-> Result<(), Exception>{
     else if flags.contains(&'f'){
         match read_label("[PATHS]", args
             .get(0)
-            .unwrap_or(&String::new())
+            .unwrap_or(&String::new()),
+            home_dir
             ){
             Ok(text) =>{
                 for path in text.split_whitespace(){
                     let path_name = path.split('/').last().unwrap();
-                        copy_dir(home_dir.clone() + &args[0] + "/configs/" + path_name, path);
+                        copy_dir(home_dir.to_owned() + &args[0] + "/configs/" + path_name, path);
 
                     println!(
                         "{} Synced ({}) successfully!",
                         "[~]".purple(),
-                        path_name,
+                        path_name.purple(),
                     )
                 }
             }
@@ -417,13 +602,7 @@ fn sync(flags: HashSet<char>, args: Vec<String>)-> Result<(), Exception>{
     Ok(())
 }
 
-fn query(flags: HashSet<char>, args: Vec<String>)-> Result<(), Exception>{
-    let home_dir = dirs::home_dir()
-        .unwrap()
-        .into_os_string()
-        .into_string()
-        .unwrap() + "/.config/alps/";
-
+fn query(flags: HashSet<char>, args: Vec<String>, home_dir: &str)-> Result<(), Exception>{
     if flags.contains(&'h'){
         println!("usage: {{-Q}} [options] [?group] [optional:entries]"); 
         println!("options:");
@@ -480,11 +659,11 @@ fn query(flags: HashSet<char>, args: Vec<String>)-> Result<(), Exception>{
                 println!(
                     "{} :: ({}) packages :: ({}) configs :: ({}) scripts", 
                     group.blue(),
-                    if let Ok(text) = read_label("[PACKAGES]", &group){text.split_whitespace().count()}
+                    if let Ok(text) = read_label("[PACKAGES]", &group, home_dir){text.split_whitespace().count()}
                         else{0},
-                    if let Ok(text) = read_label("[PATHS]", &group){text.split_whitespace().count()}
+                    if let Ok(text) = read_label("[PATHS]", &group, home_dir){text.split_whitespace().count()}
                         else{0},
-                    if let Ok(text) = read_label("[SCRIPTS]", &group){text.split_whitespace().count()}
+                    if let Ok(text) = read_label("[SCRIPTS]", &group, home_dir){text.split_whitespace().count()}
                         else{0}
                 );
             }
@@ -494,7 +673,8 @@ fn query(flags: HashSet<char>, args: Vec<String>)-> Result<(), Exception>{
     else if flags.contains(&'p'){
         match read_label("[PACKAGES]", args
             .get(0)
-            .unwrap_or(&String::new())
+            .unwrap_or(&String::new()),
+            home_dir
         ){
             Ok(text) =>{
                 if args.len() > 1{
@@ -544,7 +724,8 @@ fn query(flags: HashSet<char>, args: Vec<String>)-> Result<(), Exception>{
     else if flags.contains(&'f'){
         match read_label("[PATHS]", args
             .get(0)
-            .unwrap_or(&String::new())
+            .unwrap_or(&String::new()),
+            home_dir
         ){
             Ok(text) =>{
                 if args.len() > 1{
@@ -591,6 +772,57 @@ fn query(flags: HashSet<char>, args: Vec<String>)-> Result<(), Exception>{
             Err(error) => return Err(error),
         }
     }
+    else if flags.contains(&'s'){
+        match read_label("[SCRIPTS]", args
+            .get(0)
+            .unwrap_or(&String::new()),
+            home_dir
+        ){
+            Ok(text) =>{
+                if args.len() > 1{
+                    let mut status = 0;
+
+                    for arg in &args[1..]{
+                        let mut contains = false;
+                        for package in text.split_whitespace(){
+                            if arg == package{
+                                println!(
+                                    "{} Found script ({}) in group ({})...", 
+                                    "[?]".blue(),
+                                    package.blue(),
+                                    &args[0].blue()
+                                );
+                                
+                                contains = true;
+                                break;
+                            }
+                        }
+
+                        if !contains{
+                            eprintln!(
+                                "{} Script ({}) not found in group ({})!",
+                                "[!]".yellow(),
+                                arg.yellow(),
+                                &args[0].yellow()
+                            );
+                            status += 1;
+                        }
+                    }
+
+                    return Err(Exception::Status(status));
+                }
+                else{
+                    let mut count = 0;
+                    for package in text.split_whitespace(){
+                        print!("{}, ", package.blue());
+                        count += 1;
+                    }
+                    println!("({count}) scripts found...");
+                }
+            }
+            Err(error) => error.handle(),
+        }
+    }
     else{
         if flags.is_empty(){
             return Err(Exception::MissingOption);
@@ -602,13 +834,8 @@ fn query(flags: HashSet<char>, args: Vec<String>)-> Result<(), Exception>{
     Ok(())
 }
 
-fn parser()-> Result<(), Exception>{
-    fs::create_dir(dirs::home_dir()
-        .unwrap()
-        .into_os_string()
-        .into_string()
-        .unwrap() + "/.config/alps/"
-    );
+fn parser(home_dir: &str)-> Result<(), Exception>{
+    fs::create_dir(home_dir);
 
     let p_args: Vec<_> = env::args().collect();
     if p_args.len() == 1{ return Err(Exception::PlainRun); }
@@ -629,7 +856,7 @@ fn parser()-> Result<(), Exception>{
                             return Err(Exception::DuplicateOperation);
                         }
                     }
-                    'h' | 'f' | 'p' | 'c' | 'g' => {
+                    'h' | 'f' | 'p' | 'c' | 'g' | 's' => {
                         flags.insert(flag);
                     }
                     op =>{ 
@@ -643,17 +870,23 @@ fn parser()-> Result<(), Exception>{
     }
 
     match mode{
-        Some('I') => install(flags, args), 
-        Some('R') => remove(flags, args),
-        Some('S') => sync(flags, args),
-        Some('Q') => query(flags, args),
+        Some('I') => install(flags, args, home_dir), 
+        Some('R') => remove(flags, args, home_dir),
+        Some('S') => sync(flags, args, home_dir),
+        Some('Q') => query(flags, args, home_dir),
         None => Err(Exception::MissingOperation),
         _ => Ok(()),
     }
 }
 
 fn main(){
-    if let Err(error) = parser(){
+    let home_dir = dirs::home_dir()
+        .unwrap()
+        .into_os_string()
+        .into_string()
+        .unwrap() + "/.config/alps/";
+
+    if let Err(error) = parser(&home_dir){
         error.handle();
     }
 }
