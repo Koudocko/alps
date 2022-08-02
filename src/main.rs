@@ -223,11 +223,6 @@ fn config_del(label: &str, args: Vec<String>, home_dir: &str)-> Result<(), Excep
         }
 
         if contains{
-            let mut handle = fs::OpenOptions::new()
-                .write(true)
-                .open(home_dir.to_owned() + &args[0] + "/" + &args[0] + ".conf")
-                .unwrap();
-
             let mut segments: Vec<String> = Vec::new();
             for segment in &excludes{
                 let list = if let 
@@ -241,7 +236,13 @@ fn config_del(label: &str, args: Vec<String>, home_dir: &str)-> Result<(), Excep
                     segments.push(segment.to_owned() + &list);
                 }
             }
-            
+
+            let mut handle = fs::OpenOptions::new()
+                .truncate(true)
+                .write(true)
+                .open(home_dir.to_owned() + &args[0] + "/" + &args[0] + ".conf")
+                .unwrap();           
+
             for mut segment in segments{
                 if !segment.ends_with('\n'){
                     segment.push('\n');
@@ -315,11 +316,6 @@ fn config_add(label: &str, args: Vec<String>, home_dir: &str)-> Result<(), Excep
                 label.green()
             );
 
-            let mut handle = fs::OpenOptions::new()
-                .write(true)
-                .open(home_dir.to_owned() + &args[0] + "/" + &args[0] + ".conf")
-                .unwrap();
-
             let mut segments: Vec<String> = Vec::new();
             for segment in &excludes{
                 let list = if let 
@@ -333,7 +329,13 @@ fn config_add(label: &str, args: Vec<String>, home_dir: &str)-> Result<(), Excep
                     segments.push(segment.to_owned() + &list);
                 }
             }
-            
+
+            let mut handle = fs::OpenOptions::new()
+                .truncate(true)
+                .write(true)
+                .open(home_dir.to_owned() + &args[0] + "/" + &args[0] + ".conf")
+                .unwrap();                 
+
             for mut segment in segments{
                 if !segment.ends_with('\n'){
                     segment.push('\n');
@@ -591,6 +593,44 @@ fn sync(flags: HashSet<char>, args: Vec<String>, home_dir: &str)-> Result<(), Ex
             }
             Err(error) => return Err(error),
         }
+    }
+    else if flags.contains(&'s'){
+        match read_label("[SCRIPTS]", args
+            .get(0)
+            .unwrap_or(&String::new()),
+            home_dir
+            ){
+                Ok(text) =>{
+                    for script in text.split_whitespace(){
+                        let mut handle = Command::new("/".to_owned() + home_dir + &args[0] + "/scripts/" + script);
+                        match handle.status(){
+                            Ok(_) => println!(
+                                "{} Successfully ran script ({})...",
+                                "[~]".purple(),
+                                script.purple()
+                            ),
+                            Err(error) => {
+                                if error.kind() == ErrorKind::NotFound{
+                                    println!(
+                                        "{} Script ({}) not installed to group! (use -h for help)",
+                                        "[!]".yellow(),
+                                        script.yellow()
+                                    )
+                                }
+                                else{
+                                    println!(
+                                        "{} Script ({}) failed to exit successfully!",
+                                        "[!]".yellow(),
+                                        script.yellow()
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+                Err(error) => error.handle(),
+            }
+       
     }
     else{
         if flags.is_empty(){
