@@ -8,6 +8,7 @@ use std::{
 }; 
 use colored::Colorize;
 
+#[derive(Debug)]
 enum Exception{
     InvalidOperation(char),
     InvalidGroup(String),
@@ -466,7 +467,9 @@ fn install(flags: HashSet<char>, args: Vec<String>, home_dir: &str)-> Result<(),
                     }
                 }
                 
-                return config_add("[SCRIPTS]", args, home_dir);
+                let scripts = args.into_iter()
+                    .map(|script| script.split('/').last().unwrap().to_string()).collect::<Vec<String>>();
+                return config_add("[SCRIPTS]", scripts, home_dir);
             }
             Err(error) => return Err(error),
         }
@@ -489,6 +492,72 @@ fn remove(flags: HashSet<char>, args: Vec<String>, home_dir: &str)-> Result<(), 
         println!("-g\tsync entire group configuration");
         println!("-p\tsync only group packages");
         println!("-f\tsync only group files");       
+    }
+    else if flags.contains(&'g'){
+        if !args.is_empty(){
+            for group in args{
+                match fs::remove_dir_all(home_dir.to_owned() + &group){
+                    Ok(_) => println!(
+                                "{} Succesfully removed group ({})",
+                                "[-]".green(),
+                                group.green()
+                            ),
+                    Err(error) =>{
+                        if error.kind() == ErrorKind::NotFound{
+                            println!(
+                                "{} Group ({}) not found! (use -h for help)",
+                                "[!]".yellow(),
+                                group.yellow()
+                            );
+                        }
+                    }
+
+                }
+            }
+        }
+        else{
+            return Err(Exception::MissingArgs(String::from("group")));
+        }
+    }
+    else if flags.contains(&'f'){
+        let mut paths: Vec<String> = vec![args[0].to_owned()];
+        paths.append(&mut read_label("[PATHS]", &args[0], home_dir)
+            .unwrap()
+            .split_whitespace()
+            .filter(|path|{
+                let path = path.split('/').last().unwrap();
+                let mut status = false;
+
+                for arg in &args[1..]{
+                    if path == arg{
+                        status = true;
+                    }
+                }
+
+                status
+            }).map(|path| path.to_string()).collect::<Vec<String>>());
+
+        for path in &args[1..]{
+            let path = home_dir.to_owned() + &args[0] + "/configs/" + path;
+
+            if Path::new(&path).is_dir(){
+                fs::remove_dir_all(path);
+            }
+            else if Path::new(&path).is_file(){
+                fs::remove_file(path);
+            }
+        } 
+
+        return config_del("[PATHS]", paths, home_dir);
+    }
+    else if flags.contains(&'s'){
+         for path in &args[1..]{
+            let path = home_dir.to_owned() + &args[0] + "/scripts/" + path;
+
+            fs::remove_file(path);
+        } 
+
+        return config_del("[SCRIPTS]", args, home_dir);       
     }
     else if flags.contains(&'p'){
         return config_del("[PACKAGES]", args, home_dir);
