@@ -1,7 +1,7 @@
 use std::{
     fs,
     env, 
-    path::Path, 
+    path::{Path, PathBuf}, 
     process::Command,
     collections::HashSet, 
     io::{prelude::*, ErrorKind}, 
@@ -9,87 +9,230 @@ use std::{
 use colored::Colorize;
 
 #[derive(Debug)]
-enum Exception{
-    InvalidOperation(char),
-    InvalidGroup(String),
-    MissingArgs(String),
-    Status(i32),
-    DuplicateOperation,
-    MissingOperation,
-    InvalidOption,
-    MissingOption,
-    MissingGroup,
-    PlainRun,
+enum CW{
+    MissingGroup(Vec<String>),
+    MissingArgs(Vec<String>),
+    InvalidGroups(Vec<String>),
+    InvalidPackages(Vec<String>, bool),
+    InvalidConfigs(Vec<String>, bool),
+    InvalidScripts(Vec<String>, bool),
 }
 
-impl Exception{
-    fn handle(&self){
-        let mut exit_status = 1;
+fn bounds_check(exceptions: &[CW]){
+    let home_dir = dirs::home_dir()
+        .unwrap()
+        .into_os_string()
+        .into_string()
+        .unwrap() + "/.config/alps/";
 
-        match self{
-            Exception::MissingArgs(label) =>{
-                eprintln!(
-                    "{} Expected {}(s)! (use -h for help)",
-                    "[!!!]".red(),
-                    label.red()
-                )
+    for exception in exceptions{
+        match exception{
+            CW::MissingGroup(args) =>{
+                if args.is_empty(){
+                    eprintln!(
+                        "{} Expected group! (use -h for help)",
+                        "[!!!]".red()
+                    );
+                    std::process::exit(1);
+                }
+
+                if !Path::new(&(home_dir.to_owned() + &args[0])).is_dir(){
+                    eprintln!(
+                        "{} Invalid group! (use -h for help)",
+                        "[!!!]".red(),
+                    );
+
+                    std::process::exit(1);
+                }
             }
-            Exception::InvalidGroup(group) =>{
-                eprintln!(
-                    "{} Group ({}) does not exist! (use -h for help)", 
-                    "[!!!]".red(), 
-                    group.red()
-                );
+            CW::MissingArgs(args) =>{
+                if args.is_empty(){
+                    eprintln!(
+                        "{} Expected arguments! (use -h for help)",
+                        "[!!!]".red()
+                    );
+                    std::process::exit(1);
+                }
             }
-            Exception::MissingGroup =>{
-                eprintln!(
-                    "{} Expected group name! (use -h for help)",
-                    "[!!!]".red()
-                );
+            CW::InvalidGroups(args) =>{
+                for arg in args{
+                    if Path::new(&(home_dir.to_owned() + arg)).is_dir(){
+                        eprintln!(
+                            "{} Group ({}) already exists!",
+                            "[!]".yellow(),
+                            arg.yellow()
+                        );
+                    }
+                }
             }
-            Exception::DuplicateOperation =>{
-                eprintln!(
-                    "{} Only one operation may be used at a time! (use -h for help)",
-                    "[!!!]".red()
-                );
+            CW::InvalidPackages(args, mode) =>{
+                let mut packages = Vec::<String>::new();
+               
+                for arg in &args[1..]{
+                    let contains = read_label("[PACKAGES]", &args[0], &home_dir)
+                        .split_whitespace()
+                        .any(|ele| *arg == ele);
+
+                    if *mode{
+                        if contains{
+                            eprintln!(
+                                "{} Package ({}) already installed!",
+                                "[!]".yellow(),
+                                arg.yellow()
+                            );
+
+                            continue;
+                        }
+                    
+                        let mut handle = Command::new("pacman")
+                            .args(["-Ss", &("^".to_owned() + arg + "$")])
+                            .output()
+                            .unwrap();
+
+                        if !handle.status.success(){
+                            eprintln!(
+                                "{} Package ({}) does not exist!",
+                                "[!]".yellow(),
+                                arg.yellow()
+                            );
+
+                            continue;
+                        }
+                    }
+
+                    if !contains{
+                        eprintln!(
+                            "{} Package ({}) not installed!",
+                            "[!]".yellow(),
+                            arg.yellow()
+                        );
+
+                        continue;
+                    }
+
+                    packages.push(arg.to_owned());
+                }
+
+                args = &packages;
             }
-            Exception::InvalidOperation(op) =>{
-                eprintln!(
-                    "{} Option ({}) not found! (use -h for help)",
-                    "[!!!]".red(),
-                    op
-                );
-            }
-            Exception::PlainRun =>{
-                eprintln!(
-                    "{} No operation specified! (use -h for help)",
-                    "[!!!]".red()
-                )
-            }
-            Exception::InvalidOption =>{
-                eprintln!(
-                    "{} Invalid option! (use -h for help)",
-                    "[!!!]".red()
-                );
-            }
-            Exception::Status(status) =>{
-                exit_status = *status;
-            }
-            Exception::MissingOperation =>{
-                eprintln!(
-                    "{} Missing operation! (use -h for help)",
-                    "[!!!]".red()
-                )
-            }
-            Exception::MissingOption =>{
-                eprintln!(
-                    "{} Missing option! (use -h for help)",
-                    "[!!!]".red()
-                )
-            }
-        }       
+            CW::InvalidConfigs(args, mode) =>{
+                let mut configs = Vec::<String>::new();
+
+                for arg in &args[1..]{
+                    let mut config = String::new();
+
+                    if *mode{
+                        match fs::canonicalize(PathBuf::from(arg)){
+                            Ok(true_path) =>{
+                                config = true_path
+                                    .into_os_string()
+                                    .into_string()
+                                    .unwrap();
+
+                                let contains = read_label("[CONFIGS]", &args[0], &home_dir)
+                                    .split_whitespace()
+                                    .any(|ele| config == ele);
         
-        std::process::exit(exit_status);
+                                if contains{
+                                    eprintln!(
+                                        "{} Config ({}) already installed!",
+                                        "[!]".yellow(),
+                                        arg.yellow()
+                                    );
+        
+                                    continue;
+                                }
+                            }
+                            Err(_) =>{
+                                eprintln!(
+                                    "{} Config ({}) does not exist!",
+                                    "[!]".yellow(),
+                                    arg.yellow()
+                                );
+    
+                                continue;
+                            }
+                        }
+                   }
+                   else{
+                        let contains = read_label("[CONFIGS]", &args[0], &home_dir)
+                            .split_whitespace()
+                            .any(|ele|{
+                                config = ele.to_string();
+                                arg == ele.split('\n').last().unwrap()
+                            });
+
+                        if !contains{
+                            eprintln!(
+                                "{} Config ({}) not installed!",
+                                "[!]".yellow(),
+                                arg.yellow()
+                            );
+
+                            continue;
+                        }
+                    }
+
+                    configs.push(config);
+                }
+
+                args = &configs;
+            }
+            CW::InvalidScripts(args, mode) =>{
+                let mut scripts = Vec::<String>::new();
+
+                for arg in args{
+                    if *mode{
+                        match fs::canonicalize(PathBuf::from(arg)){
+                            Ok(_) =>{
+                                let contains = read_label("[SCRIPTS]", &args[0], &home_dir)
+                                    .split_whitespace()
+                                    .any(|ele| arg == ele);
+        
+                                if contains{
+                                    eprintln!(
+                                        "{} Script ({}) already installed!",
+                                        "[!]".yellow(),
+                                        arg.yellow()
+                                    );
+        
+                                    continue;
+                                }
+                            }
+                            Err(_) =>{
+                                eprintln!(
+                                    "{} Script ({}) does not exist!",
+                                    "[!]".yellow(),
+                                    arg.yellow()
+                                );
+    
+                                continue;
+                            }
+                        }
+                    }
+                    else{
+                        let contains = read_label("[SCRIPTS]", &args[0], &home_dir)
+                            .split_whitespace()
+                            .any(|ele| arg == ele);
+    
+                        if !contains{
+                            eprintln!(
+                                "{} Script ({}) not installed!",
+                                "[!]".yellow(),
+                                arg.yellow()
+                            );
+    
+                            continue;
+                        }
+                    }
+    
+                    scripts.push(arg.to_string());
+                }
+    
+                args = &scripts;
+            }
+            _ => (),
+        }
     }
 }
 
@@ -99,10 +242,8 @@ fn reformat_config(labels: &Vec<String>, group: &str, home_dir: &str){
     for label in labels{
         config_text.push_str(&(label.to_owned() + "\n"));
 
-        if let Ok(text) = read_label(label, group, home_dir){
-            for entry in text.split_whitespace(){
-                config_text.push_str (&(entry.to_owned() + "\n"));
-            }
+        for entry in read_label(label, group, home_dir).split_whitespace(){
+            config_text.push_str (&(entry.to_owned() + "\n"));
         }
 
         if label != labels.last().unwrap(){
@@ -140,217 +281,83 @@ where
    }
 }
 
-fn read_label(label: &str, group:  &str, home_dir: &str)-> Result<String, Exception>{
+fn read_label(label: &str, group:  &str, home_dir: &str)-> String{
     let excludes = vec![
         String::from("[PACKAGES]"),
         String::from("[PATHS]"),
         String::from("[SCRIPTS]")
     ];
 
-    if !group.is_empty(){
-        if Path::new(&(home_dir.to_owned() + group)).is_dir(){
-            let mut text = String::new();
-    
-            let mut handle = fs::OpenOptions::new()
-                .read(true)
-                .write(true)
-                .create(true)
-                .open(home_dir.to_owned() + group + "/" + group + ".conf")
-                .unwrap();
-            handle.read_to_string(&mut text).unwrap();
-            let text: Vec<&str> = text.split(&label).collect();
-    
-            if text.len() > 1{
-                let mut text = text[1];
-    
-                for exclude in &excludes{
-                    text = text.split(exclude).next().unwrap();
-                }
-    
-                Ok(text.to_string())
-            }
-            else{
-                Ok(String::new())
-            }
+    let mut text = String::new();
+
+    let mut handle = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .open(home_dir.to_owned() + group + "/" + group + ".conf")
+        .unwrap();
+    handle.read_to_string(&mut text).unwrap();
+    let text: Vec<&str> = text.split(&label).collect();
+
+    if text.len() > 1{
+        let mut text = text[1];
+
+        for exclude in &excludes{
+            text = text.split(exclude).next().unwrap();
         }
-        else{
-            Err(Exception::InvalidGroup(group.to_string()))
-        }
+
+        text.to_string()
     }
     else{
-        Err(Exception::MissingGroup)
+        String::new()
     }
 }
 
-fn config_del(label: &str, args: Vec<String>, home_dir: &str)-> Result<(), Exception>{
-    if let Err(error) = read_label(label, args.get(0).unwrap_or(&String::new()), home_dir){
-        return Err(error);
-    }
-
-    if args.len() < 2{
-        return Err(Exception::MissingArgs(label.to_string()));
-    }
-
+fn config_write(group: &str, label: &str, entry: &str, home_dir: &str, mode: bool){
     let excludes = vec![
         String::from("[PACKAGES]"),
         String::from("[PATHS]"),
         String::from("[SCRIPTS]")
     ];
 
-    reformat_config(&excludes, &args[0], home_dir);
+    reformat_config(&excludes, group, home_dir);
 
-    for arg in &args[1..]{
-        let mut contains = false;
-
-        let readin = read_label(label, &args[0], home_dir);
-        match readin{
-            Ok(text) =>{
-                for entry in text.split_whitespace(){
-                    if arg == entry{
-                        println!(
-                            "{} Removing entry ({}) from group ({}) under label ({})!", 
-                            "[-]".green(), 
-                            entry.green(), 
-                            args[0].green(),
-                            label.green()
-                        );               
-                        
-                        contains = true;
-                        break;
-                    }
-                }
+    let mut segments: Vec<String> = Vec::new();
+    for segment in &excludes{
+        let list = 
+            if mode{
+                read_label(segment, group, home_dir)
             }
-            Err(error) => return Err(error),
-        }
-
-        if contains{
-            let mut segments: Vec<String> = Vec::new();
-            for segment in &excludes{
-                let list = if let 
-                    Ok(list) = read_label(segment, &args[0], home_dir){list.split(arg).collect::<String>()}
-                else{String::new()};
-
-                if segment == label{
-                    segments.push(segment.to_owned() + "\n" + &list);
-                }
-                else{
-                    segments.push(segment.to_owned() + &list);
-                }
-            }
-
-            let mut handle = fs::OpenOptions::new()
-                .truncate(true)
-                .write(true)
-                .open(home_dir.to_owned() + &args[0] + "/" + &args[0] + ".conf")
-                .unwrap();           
-
-            for mut segment in segments{
-                if !segment.ends_with('\n'){
-                    segment.push('\n');
-                }
-
-                handle.write_all(segment.as_bytes()).unwrap();
-            }
+            else{
+                read_label(segment, group, home_dir).split(entry).collect::<String>()
+            };
+        
+        if segment == label{
+            segments.push(segment.to_owned() + "\n" + &list);
         }
         else{
-            eprintln!(
-                "{} Entry ({}) not found under group ({}) label ({})",
-                "[!]".yellow(),
-                arg.yellow(),
-                args[0].yellow(),
-                label.yellow()
-            )
+            segments.push(segment.to_owned() + &list);
         }
     }
 
-    reformat_config(&excludes, &args[0], home_dir);
-    Ok(())
+    let mut handle = fs::OpenOptions::new()
+        .truncate(true)
+        .write(true)
+        .open(home_dir.to_owned() + group + "/" + group + ".conf")
+        .unwrap();           
+
+    for mut segment in segments{
+        if !segment.ends_with('\n'){
+            segment.push('\n');
+        }
+
+        handle.write_all(segment.as_bytes()).unwrap();
+    }
+
+    reformat_config(&excludes, group, home_dir);
 }
 
-fn config_add(label: &str, args: Vec<String>, home_dir: &str)-> Result<(), Exception>{
-    if let Err(error) = read_label(label, args.get(0).unwrap_or(&String::new()), home_dir){
-        return Err(error);
-    }
-
-    if args.len() < 2{
-        return Err(Exception::MissingArgs(label.to_string()));
-    }
-
-    let excludes = vec![
-        String::from("[PACKAGES]"),
-        String::from("[PATHS]"),
-        String::from("[SCRIPTS]")
-    ];
-
-    reformat_config(&excludes, &args[0], home_dir);
-
-    for arg in &args[1..]{
-        let mut contains = false;
-
-        let readin = read_label(label, &args[0], home_dir);
-        match readin{
-            Ok(text) =>{
-                for entry in text.split_whitespace(){
-                    if arg == entry{
-                        println!(
-                            "{} Entry ({}) already added to group ({}) under label ({})!", 
-                            "[!]".yellow(), 
-                            entry.yellow(), 
-                            args[0].yellow(),
-                            label.yellow()
-                        );               
-                        
-                        contains = true;
-                        break;
-                    }
-                }
-            }
-            Err(error) => return Err(error),
-        }
-
-        if !contains{
-            println!(
-                "{} Added entry ({}) to group ({}) under label ({})...", 
-                "[+]".green(), 
-                arg.green(), 
-                args[0].green(),
-                label.green()
-            );
-
-            let mut segments: Vec<String> = Vec::new();
-            for segment in &excludes{
-                let list = if let 
-                    Ok(list) = read_label(segment, &args[0], home_dir){list}
-                else{String::new()};
-
-                if segment == label{
-                    segments.push(segment.to_owned() + "\n" + arg + &list);
-                }
-                else{
-                    segments.push(segment.to_owned() + &list);
-                }
-            }
-
-            let mut handle = fs::OpenOptions::new()
-                .truncate(true)
-                .write(true)
-                .open(home_dir.to_owned() + &args[0] + "/" + &args[0] + ".conf")
-                .unwrap();                 
-
-            for mut segment in segments{
-                if !segment.ends_with('\n'){
-                    segment.push('\n');
-                }
-                handle.write_all(segment.as_bytes()).unwrap();
-            }
-        }
-    }
-
-    reformat_config(&excludes, &args[0], home_dir);
-    Ok(())
-}
-
-fn install(flags: HashSet<char>, args: Vec<String>, home_dir: &str)-> Result<(), Exception>{
+fn install(flags: HashSet<char>, args: Vec<String>, home_dir: &str)-> Result<(), CW>{
     if flags.contains(&'h'){
         println!("usage: {{-I}} [options] [package(s)]");
         println!("options:");
@@ -359,133 +366,116 @@ fn install(flags: HashSet<char>, args: Vec<String>, home_dir: &str)-> Result<(),
         println!("-p\tinstall package to profile");
     } 
     else if flags.contains(&'g'){
+        bounds_check(
+            &[CW::MissingArgs(args), 
+            CW::InvalidGroups(args)]);
+
         for arg in args{
-            match fs::create_dir(home_dir.to_owned() + &arg){
-                Ok(()) => println!(
-                    "{} Created group ({})...", 
-                    "[+]".green(), 
+            if let Ok(_) = fs::create_dir(home_dir.to_owned() + &arg){
+                println!(
+                    "{} Created group ({})...",
+                    "[+]".green(),
                     arg.green()
-                ),
-                Err(error) =>{
-                    if error.kind() == ErrorKind::AlreadyExists{
-                        println!(
-                            "{} Group ({}) already exists!", 
-                            "[!]".yellow(), 
-                            arg.yellow()
-                        );
-                    }
-                }
+                );
             }
         }
     }
     else if flags.contains(&'p'){ 
-        return config_add("[PACKAGES]", args, home_dir);
+        bounds_check(
+            &[CW::MissingGroup(args), 
+            CW::MissingArgs(args), 
+            CW::InvalidPackages(args, true)]
+        );
+
+        for arg in args{
+            config_write(&args[0], "[PACKAGES]", &arg, home_dir, true);
+
+            println!(
+                "{} P({}) => G({}) => L({})",
+                "[+]".green(),
+                arg.green(),
+                &args[0].green(),
+                "PACKAGES".green()
+            );
+        }
     }
     else if flags.contains(&'f'){
+        bounds_check(
+            &[CW::MissingGroup(args), 
+            CW::MissingArgs(args), 
+            CW::InvalidConfigs(args, true)]
+        );
+
         fs::create_dir(home_dir.to_owned() + &args[0] + "/configs");
-        let handle = read_label("[PATHS]", args.get(0).unwrap_or(&String::new()), home_dir);
 
-        match handle{
-            Ok(_) =>{
-                let mut paths: Vec<String> = vec![args[0].clone()];
-        
-                for arg in &args[1..]{
-                    match fs::canonicalize(std::path::PathBuf::from(arg)){
-                        Ok(path) =>{
-                            let path_str = path.clone().into_os_string().into_string().unwrap();
+        for arg in args{
+            config_write(&args[0], "[CONFIGS]", &arg, home_dir, true);
 
-                            paths.push(path_str.clone());
+            copy_dir(
+                arg, 
+                (home_dir.to_owned()
+                    + &args[0]
+                    + "/configs/"
+                    + (arg
+                        .split('/')
+                        .last()
+                        .unwrap()
+                    )
+                ) 
+            );
 
-                            let contains = fs::read_dir(home_dir.to_owned()
-                                + &args[0] 
-                                + "/configs/").unwrap()
-                            .map(|x|{
-                                x.unwrap().file_name().into_string().unwrap()}
-                            ).any(|group| group == *arg);
-
-                            if !contains{
-                                copy_dir(
-                                path, 
-                                home_dir.to_owned() + 
-                                    &args[0] + "/configs/" + 
-                                    path_str
-                                    .split('/')
-                                    .last()
-                                    .unwrap()
-                                );
-                            }
-                        }
-                        Err(_) => println!(
-                            "{} Path to ({}) does not exist!",
-                            "[!]".yellow(),
-                            arg.yellow()
-                        ),
-                    }
-                }
-
-                return config_add("[PATHS]", paths, home_dir);
-            }
-            Err(error) => return Err(error),
+            println!(
+                "{} C({}) => G({}) => L({})",
+                "[+]".green(),
+                arg.green(),
+                &args[0].green(),
+                "CONFIGS".green()
+            );
         }
     }
     else if flags.contains(&'s'){
+        bounds_check(
+            &[CW::MissingGroup(args), 
+            CW::MissingArgs(args), 
+            CW::InvalidScripts(args, true)]
+        );
+
         fs::create_dir(home_dir.to_owned() + &args[0] + "/scripts");
-        let handle = read_label("[SCRIPTS]", args.get(0).unwrap_or(&String::new()), home_dir);
+        
+        for arg in args{
+            config_write(&args[0], "[SCRIPTS]", &arg, home_dir, true);
 
-        match handle{
-            Ok(_) =>{
-                for arg in &args[1..]{
-                    match fs::canonicalize(std::path::PathBuf::from(arg)){
-                        Ok(path) =>{
-                            let path_str = path.clone().into_os_string().into_string().unwrap();
+            copy_dir(
+                arg, 
+                (home_dir.to_owned()
+                    + &args[0]
+                    + "/scripts/"
+                    + &arg
+                )   
+            );
 
-                            let contains = fs::read_dir(home_dir.to_owned() 
-                                + &args[0] 
-                                + "/configs/").unwrap()
-                            .map(|x|{
-                                x.unwrap().file_name().into_string().unwrap()}
-                            ).any(|group| group == *arg);
+            println!(
+                "{} S({}) => G({}) => L({})",
+                "[+]".green(),
+                arg.green(),
+                &args[0].green(),
+                "SCRIPTS".green()
+            );
 
-
-                            if !contains{
-                                copy_dir(
-                                path, 
-                                home_dir.to_owned() + 
-                                    &args[0] + "/scripts/" + 
-                                    path_str
-                                    .split('/')
-                                    .last()
-                                    .unwrap()
-                                );
-                            }
-                        }
-                        Err(_) => println!(
-                            "{} Path to ({}) does not exist!",
-                            "[!]".yellow(),
-                            arg.yellow()
-                        ),
-                    }
-                }
-                
-                let scripts = args.into_iter()
-                    .map(|script| script.split('/').last().unwrap().to_string()).collect::<Vec<String>>();
-                return config_add("[SCRIPTS]", scripts, home_dir);
-            }
-            Err(error) => return Err(error),
         }
     }
     else{
         if flags.is_empty(){
-            return Err(Exception::MissingOption);
+            return Err(CW::MissingOption);
         }
 
-        return Err(Exception::InvalidOption);
+        return Err(CW::InvalidOption);
     }
 
     Ok(())
 }
 
-fn remove(flags: HashSet<char>, args: Vec<String>, home_dir: &str)-> Result<(), Exception>{
+fn remove(flags: HashSet<char>, args: Vec<String>, home_dir: &str)-> Result<(), CW>{
     if flags.contains(&'h'){
         println!("usage: {{-R}} [options] [group]");
         println!("options:");
@@ -516,7 +506,7 @@ fn remove(flags: HashSet<char>, args: Vec<String>, home_dir: &str)-> Result<(), 
             }
         }
         else{
-            return Err(Exception::MissingArgs(String::from("group")));
+            return Err(CW::MissingArgs(String::from("group")));
         }
     }
     else if flags.contains(&'f'){
@@ -564,16 +554,16 @@ fn remove(flags: HashSet<char>, args: Vec<String>, home_dir: &str)-> Result<(), 
     }
     else{
         if flags.is_empty(){
-            return Err(Exception::MissingOption);
+            return Err(CW::MissingOption);
         }
 
-        return Err(Exception::InvalidOption);
+        return Err(CW::InvalidOption);
     }
 
     Ok(())
 }
 
-fn sync(flags: HashSet<char>, args: Vec<String>, home_dir: &str)-> Result<(), Exception>{
+fn sync(flags: HashSet<char>, args: Vec<String>, home_dir: &str)-> Result<(), CW>{
     if flags.contains(&'h'){
         println!("usage: {{-S}} [options] [group]");
         println!("options:");
@@ -703,15 +693,15 @@ fn sync(flags: HashSet<char>, args: Vec<String>, home_dir: &str)-> Result<(), Ex
     }
     else{
         if flags.is_empty(){
-            return Err(Exception::MissingOption);
+            return Err(CW::MissingOption);
         }
 
-        return Err(Exception::InvalidOption);
+        return Err(CW::InvalidOption);
     }
     Ok(())
 }
 
-fn query(flags: HashSet<char>, args: Vec<String>, home_dir: &str)-> Result<(), Exception>{
+fn query(flags: HashSet<char>, args: Vec<String>, home_dir: &str)-> Result<(), CW>{
     if flags.contains(&'h'){
         println!("usage: {{-Q}} [options] [?group] [optional:entries]"); 
         println!("options:");
@@ -759,7 +749,7 @@ fn query(flags: HashSet<char>, args: Vec<String>, home_dir: &str)-> Result<(), E
                 }               
             }
 
-            return Err(Exception::Status(status));
+            return Err(CW::Status(status));
         }
         else{
             for group in &groups{
@@ -816,7 +806,7 @@ fn query(flags: HashSet<char>, args: Vec<String>, home_dir: &str)-> Result<(), E
                         }
                     }
 
-                    return Err(Exception::Status(status));
+                    return Err(CW::Status(status));
                 }
                 else{
                     let mut count = 0;
@@ -867,7 +857,7 @@ fn query(flags: HashSet<char>, args: Vec<String>, home_dir: &str)-> Result<(), E
                         }
                     }
 
-                    return Err(Exception::Status(status));
+                    return Err(CW::Status(status));
                 }
                 else{
                     let mut count = 0;
@@ -918,7 +908,7 @@ fn query(flags: HashSet<char>, args: Vec<String>, home_dir: &str)-> Result<(), E
                         }
                     }
 
-                    return Err(Exception::Status(status));
+                    return Err(CW::Status(status));
                 }
                 else{
                     let mut count = 0;
@@ -934,20 +924,20 @@ fn query(flags: HashSet<char>, args: Vec<String>, home_dir: &str)-> Result<(), E
     }
     else{
         if flags.is_empty(){
-            return Err(Exception::MissingOption);
+            return Err(CW::MissingOption);
         }
 
-        return Err(Exception::InvalidOption);
+        return Err(CW::InvalidOption);
     }
 
     Ok(())
 }
 
-fn parser(home_dir: &str)-> Result<(), Exception>{
+fn parser(home_dir: &str)-> Result<(), CW>{
     fs::create_dir(home_dir);
 
     let p_args: Vec<_> = env::args().collect();
-    if p_args.len() == 1{ return Err(Exception::PlainRun); }
+    if p_args.len() == 1{ return Err(CW::PlainRun); }
 
     let mut args: Vec<String> = Vec::new();
     let mut flags = HashSet::new();
@@ -962,14 +952,14 @@ fn parser(home_dir: &str)-> Result<(), Exception>{
                             mode = Some(flag); 
                         }
                         else{
-                            return Err(Exception::DuplicateOperation);
+                            return Err(CW::DuplicateOperation);
                         }
                     }
                     'h' | 'f' | 'p' | 'c' | 'g' | 's' => {
                         flags.insert(flag);
                     }
                     op =>{ 
-                        return Err(Exception::InvalidOperation(op));
+                        return Err(CW::InvalidOperation(op));
                     }
                 }
             }
@@ -983,7 +973,7 @@ fn parser(home_dir: &str)-> Result<(), Exception>{
         Some('R') => remove(flags, args, home_dir),
         Some('S') => sync(flags, args, home_dir),
         Some('Q') => query(flags, args, home_dir),
-        None => Err(Exception::MissingOperation),
+        None => Err(CW::MissingOperation),
         _ => Ok(()),
     }
 }
@@ -995,7 +985,5 @@ fn main(){
         .into_string()
         .unwrap() + "/.config/alps/";
 
-    if let Err(error) = parser(&home_dir){
-        error.handle();
-    }
+    parser(&home_dir);
 }
