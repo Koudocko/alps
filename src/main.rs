@@ -11,8 +11,9 @@ use colored::Colorize;
 #[derive(Debug)]
 enum CW{
     MissingGroup(Vec<String>),
+    MissingFlag(HashSet<char>),
     MissingArgs(Vec<String>),
-    InvalidGroups(Vec<String>),
+    InvalidGroups(Vec<String>, bool),
     InvalidPackages(Vec<String>, bool),
     InvalidConfigs(Vec<String>, bool),
     InvalidScripts(Vec<String>, bool),
@@ -45,6 +46,14 @@ fn bounds_check(exceptions: &[CW]){
                     std::process::exit(1);
                 }
             }
+            CW::MissingFlag(flags) =>{
+                if flags.is_empty(){
+                    eprintln!(
+                        "{} Expected flag! (use -h for help)",
+                        "[!!!]".red()
+                    );
+                }
+            }
             CW::MissingArgs(args) =>{
                 if args.is_empty(){
                     eprintln!(
@@ -54,16 +63,37 @@ fn bounds_check(exceptions: &[CW]){
                     std::process::exit(1);
                 }
             }
-            CW::InvalidGroups(args) =>{
+            CW::InvalidGroups(args, mode) =>{
+                let mut groups = Vec::<String>::new();
+
                 for arg in args{
-                    if Path::new(&(home_dir.to_owned() + arg)).is_dir(){
-                        eprintln!(
-                            "{} Group ({}) already exists!",
-                            "[!]".yellow(),
-                            arg.yellow()
-                        );
+                    if *mode{
+                        if Path::new(&(home_dir.to_owned() + arg)).is_dir(){
+                            eprintln!(
+                                "{} Group ({}) already installed!",
+                                "[!]".yellow(),
+                                arg.yellow()
+                            );
+
+                            continue;
+                        }
                     }
+                    else{
+                        if !Path::new(&(home_dir.to_owned() + arg)).is_dir(){
+                            eprintln!(
+                                "{} Group ({}) not installed!",
+                                "[!]".yellow(),
+                                arg.yellow()
+                            );
+    
+                            continue;
+                        }
+                    }
+
+                    groups.push(arg.to_string());
                 }
+
+                args = &groups;
             }
             CW::InvalidPackages(args, mode) =>{
                 let mut packages = Vec::<String>::new();
@@ -357,18 +387,22 @@ fn config_write(group: &str, label: &str, entry: &str, home_dir: &str, mode: boo
     reformat_config(&excludes, group, home_dir);
 }
 
-fn install(flags: HashSet<char>, args: Vec<String>, home_dir: &str)-> Result<(), CW>{
+fn install(flags: HashSet<char>, args: Vec<String>, home_dir: &str){
+    bounds_check(&[CW::MissingFlag(flags)]);
+
     if flags.contains(&'h'){
-        println!("usage: {{-I}} [options] [package(s)]");
-        println!("options:");
-        println!("-g\tinstall group to config");
-        println!("-f\tinstall file to profile");
-        println!("-p\tinstall package to profile");
+        println!("usage: {{-I}} [flag]");
+        println!("flags:");
+        println!("-g [group(s)] : install group to config");
+        println!("-f [group] [config(s)] : install file to group");
+        println!("-p [group] [package(s)] : install package to group");
+        println!("-s [group] [script(s)] : install script to group");
     } 
     else if flags.contains(&'g'){
         bounds_check(
             &[CW::MissingArgs(args), 
-            CW::InvalidGroups(args)]);
+            CW::InvalidGroups(args, true)]
+        );
 
         for arg in args{
             if let Ok(_) = fs::create_dir(home_dir.to_owned() + &arg){
@@ -391,7 +425,7 @@ fn install(flags: HashSet<char>, args: Vec<String>, home_dir: &str)-> Result<(),
             config_write(&args[0], "[PACKAGES]", &arg, home_dir, true);
 
             println!(
-                "{} P({}) => G({}) => L({})",
+                "{} Installed {}/{}/{}",
                 "[+]".green(),
                 arg.green(),
                 &args[0].green(),
@@ -425,7 +459,7 @@ fn install(flags: HashSet<char>, args: Vec<String>, home_dir: &str)-> Result<(),
             );
 
             println!(
-                "{} C({}) => G({}) => L({})",
+                "{} Installed {}/{}/{}",
                 "[+]".green(),
                 arg.green(),
                 &args[0].green(),
@@ -455,7 +489,7 @@ fn install(flags: HashSet<char>, args: Vec<String>, home_dir: &str)-> Result<(),
             );
 
             println!(
-                "{} S({}) => G({}) => L({})",
+                "{} Installed {}/{}/{}",
                 "[+]".green(),
                 arg.green(),
                 &args[0].green(),
@@ -465,111 +499,125 @@ fn install(flags: HashSet<char>, args: Vec<String>, home_dir: &str)-> Result<(),
         }
     }
     else{
-        if flags.is_empty(){
-            return Err(CW::MissingOption);
-        }
-
-        return Err(CW::InvalidOption);
+        eprintln!(
+            "{} Invalid flag! (use -h for help)",
+            "[!!!]".red()
+        );
+        
+        std::process::exit(1);
     }
-
-    Ok(())
 }
 
-fn remove(flags: HashSet<char>, args: Vec<String>, home_dir: &str)-> Result<(), CW>{
+fn remove(flags: HashSet<char>, args: Vec<String>, home_dir: &str){
+    bounds_check(&[CW::MissingFlag(flags)]);
+
     if flags.contains(&'h'){
-        println!("usage: {{-R}} [options] [group]");
-        println!("options:");
-        println!("-g\tsync entire group configuration");
-        println!("-p\tsync only group packages");
-        println!("-f\tsync only group files");       
+        println!("usage: {{-R}} [flag]");
+        println!("flags:");
+        println!("-g [group(s)] : remove specified groups including contents");
+        println!("-f [group] [configs] : remove specified config(s) of group");       
+        println!("-p [group] [package(s)] : remove specified package(s) of group");
+        println!("-s [group] [script(s)] : remove specified script(s) of group");       
     }
     else if flags.contains(&'g'){
-        if !args.is_empty(){
-            for group in args{
-                match fs::remove_dir_all(home_dir.to_owned() + &group){
-                    Ok(_) => println!(
-                                "{} Succesfully removed group ({})",
-                                "[-]".green(),
-                                group.green()
-                            ),
-                    Err(error) =>{
-                        if error.kind() == ErrorKind::NotFound{
-                            println!(
-                                "{} Group ({}) not found! (use -h for help)",
-                                "[!]".yellow(),
-                                group.yellow()
-                            );
-                        }
-                    }
+        bounds_check(
+            &[CW::MissingArgs(args), 
+            CW::InvalidGroups(args, false)]
+        );
 
-                }
+        for arg in args{
+            if let Ok(_) = fs::remove_dir_all(home_dir.to_owned() + &arg){
+                println!(
+                    "{} Removed group ({})...",
+                    "[-]".green(),
+                    arg.green()
+                );
             }
-        }
-        else{
-            return Err(CW::MissingArgs(String::from("group")));
         }
     }
     else if flags.contains(&'f'){
-        let mut paths: Vec<String> = vec![args[0].to_owned()];
-        paths.append(&mut read_label("[PATHS]", &args[0], home_dir)
-            .unwrap()
-            .split_whitespace()
-            .filter(|path|{
-                let path = path.split('/').last().unwrap();
-                let mut status = false;
+        bounds_check(
+            &[CW::MissingGroup(args),
+            CW::MissingArgs(args),
+            CW::InvalidConfigs(args, false)]
+        );
 
-                for arg in &args[1..]{
-                    if path == arg{
-                        status = true;
-                    }
-                }
+        for arg in args{
+            config_write(&args[0], "[CONFIGS]", &arg, home_dir, false);
 
-                status
-            }).map(|path| path.to_string()).collect::<Vec<String>>());
-
-        for path in &args[1..]{
-            let path = home_dir.to_owned() + &args[0] + "/configs/" + path;
-
-            if Path::new(&path).is_dir(){
-                fs::remove_dir_all(path);
+            if Path::new(&arg).is_dir(){
+                fs::remove_dir_all(arg);
             }
-            else if Path::new(&path).is_file(){
-                fs::remove_file(path);
+            else if Path::new(&arg).is_file(){
+                fs::remove_file(arg);
             }
-        } 
 
-        return config_del("[PATHS]", paths, home_dir);
+            println!(
+                "{} Removed {}/{}/{}...",
+                "[-]".green(),
+                &args[0].green(),
+                "configs".green(),
+                arg.green()
+            );
+        }
     }
     else if flags.contains(&'s'){
-         for path in &args[1..]{
-            let path = home_dir.to_owned() + &args[0] + "/scripts/" + path;
+        bounds_check(
+            &[CW::MissingGroup(args),
+            CW::MissingArgs(args),
+            CW::InvalidScripts(args, false)]
+        );
 
-            fs::remove_file(path);
+         for arg in args{
+            config_write(&args[0], "[SCRIPTS]", &arg, home_dir, false);
+            fs::remove_file(arg);
+
+            println!(
+                "{} Removed {}/{}/{}...",
+                "[-]".green(),
+                &args[0].green(),
+                "scripts".green(),
+                arg.green()
+            );
         } 
-
-        return config_del("[SCRIPTS]", args, home_dir);       
     }
     else if flags.contains(&'p'){
-        return config_del("[PACKAGES]", args, home_dir);
+        bounds_check(
+            &[CW::MissingGroup(args),
+            CW::MissingArgs(args),
+            CW::InvalidPackages(args, false)]
+        );
+
+        for arg in args{
+            config_write(&args[0], "[PACKAGES]", &arg, home_dir, false);
+
+            println!(
+                "{} Removed {}/{}/{}...",
+                "[-]".green(),
+                &args[0].green(),
+                "packages".green(),
+                arg.green()
+            );
+        }
     }
     else{
-        if flags.is_empty(){
-            return Err(CW::MissingOption);
-        }
-
-        return Err(CW::InvalidOption);
+        eprintln!(
+            "{} Invalid flag! (use -h for help)",
+            "[!!!]".red()
+        );
+        
+        std::process::exit(1);
     }
-
-    Ok(())
 }
 
-fn sync(flags: HashSet<char>, args: Vec<String>, home_dir: &str)-> Result<(), CW>{
+fn sync(flags: HashSet<char>, args: Vec<String>, home_dir: &str){
     if flags.contains(&'h'){
-        println!("usage: {{-S}} [options] [group]");
-        println!("options:");
-        println!("-g\tsync entire group configuration");
-        println!("-p\tsync only group packages");
-        println!("-f\tsync only group files");
+        println!("usage: {{-S}} [flag]");
+        println!("flags:");
+        println!("-g [group] : sync system with all group contents");
+        println!("-f [group] : sync system with only group configs");       
+        println!("-p [group] : sync system with only group packages");
+        println!("-s [group] : sync system with only group scripts");              
     }
     else if flags.contains(&'p'){
         match read_label("[PACKAGES]", args
@@ -692,13 +740,13 @@ fn sync(flags: HashSet<char>, args: Vec<String>, home_dir: &str)-> Result<(), CW
        
     }
     else{
-        if flags.is_empty(){
-            return Err(CW::MissingOption);
-        }
-
-        return Err(CW::InvalidOption);
+        eprintln!(
+            "{} Invalid flag! (use -h for help)",
+            "[!!!]".red()
+        );
+        
+        std::process::exit(1);
     }
-    Ok(())
 }
 
 fn query(flags: HashSet<char>, args: Vec<String>, home_dir: &str)-> Result<(), CW>{
@@ -933,7 +981,7 @@ fn query(flags: HashSet<char>, args: Vec<String>, home_dir: &str)-> Result<(), C
     Ok(())
 }
 
-fn parser(home_dir: &str)-> Result<(), CW>{
+fn parser(home_dir: &str){
     fs::create_dir(home_dir);
 
     let p_args: Vec<_> = env::args().collect();
