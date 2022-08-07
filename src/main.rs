@@ -266,6 +266,51 @@ fn bounds_check(exceptions: &[CW]){
     }
 }
 
+fn find(args: Vec<String>, label: &str, home_dir: &str){
+    bounds_check(&[CW::MissingGroup(args)]);
+
+    let text = read_label(label, &args[0], home_dir);
+    if args.len() > 1{
+        let mut status = 0;
+
+        for arg in &args[1..]{
+            let mut contains = text
+                .split_whitespace()
+                .any(|package| arg == package);
+
+            if contains{
+                println!(
+                    "{} Found {}/{}/{} ",
+                    "[?]".blue(),
+                    &args[0].blue(),
+                    label.blue(),
+                    arg.blue()
+                );
+            }
+            else{
+                eprintln!(
+                    "{} {}/{}/{} not found!!",
+                    "[!]".yellow(),
+                    &args[0].yellow(),
+                    label.yellow(),
+                    arg.yellow()
+                );
+                status += 1;
+            }
+        }
+
+        std::process::exit(status);
+    }
+    else{
+        let mut count = 0;
+        for package in text.split_whitespace(){
+            print!("{}, ", package.blue());
+            count += 1;
+        }
+        println!("({count}) entries found...");
+    }
+}
+
 fn reformat_config(labels: &Vec<String>, group: &str, home_dir: &str){
     let mut config_text = String::new();
 
@@ -611,6 +656,11 @@ fn remove(flags: HashSet<char>, args: Vec<String>, home_dir: &str){
 }
 
 fn sync(flags: HashSet<char>, args: Vec<String>, home_dir: &str){
+    bounds_check(
+        &[CW::MissingFlag(flags),
+        CW::MissingGroup(args)]
+    );
+
     if flags.contains(&'h'){
         println!("usage: {{-S}} [flag]");
         println!("flags:");
@@ -620,124 +670,110 @@ fn sync(flags: HashSet<char>, args: Vec<String>, home_dir: &str){
         println!("-s [group] : sync system with only group scripts");              
     }
     else if flags.contains(&'p'){
-        match read_label("[PACKAGES]", args
-            .get(0)
-            .unwrap_or(&String::new()),
-            home_dir
-            ){
-            Ok(text) =>{
-                let mut packages = String::new(); 
-                   
-                for package in text.split_whitespace(){
-                    let handle = Command::new("pacman")
-                        .args(["-Q"])
-                        .arg(&package)
-                        .output()
-                        .expect("Failed to run command.");
-            
-                    if !handle.status.success(){
-                        println!(
-                            "{} Added package ({}) to install...", 
-                            "[+]".green(), 
-                            package.green()
-                        );
-                        packages += &(package.to_owned() + " ");
-                    }
-                    else{
-                        println!(
-                            "{} Package ({}) already exists!", 
-                            "[!]".yellow(), 
-                            package.yellow()
-                        );
-                    }
+        let packages = read_label("[PACKAGES]", &args[0], home_dir)
+            .split_whitespace()
+            .filter(|package|{
+                Command::new("pacman")
+                    .args(["-Q", package])
+                    .status()
+                    .unwrap()
+                    .success()
                 }
+            ).map(|package| package.to_owned() + " ").collect::<Vec<String>>();
         
-                if !packages.is_empty(){
-                    let mut handle = Command::new("sudo");
-                    let mut command = handle.args(["pacman", "-S"]);
-            
-                    for substr in packages.as_str().split_whitespace(){
-                        command = command.arg(substr);
-                    }
-            
+        if !packages.is_empty(){
+            match Command::new("sudo")
+                .args(["pacman", "-S"])
+                .args(packages.as_slice())
+                .status()
+            {
+                Ok(_) =>{
+                    println!(
+                        "{} Successfully synced packages...",
+                        "[~]".purple()
+                    )
+                }
+                Err(_) =>{
+                    eprintln!(
+                        "{} Failed to sync packages!",
+                        "[!!!]".red()
+                    );
 
-                    match command.status(){
-                        Ok(_) =>{
-                            println!(
-                                "{} Successfully synced packages!",
-                                "[~]".purple()
-                            )
-                        }
-                        Err(_) =>{
-                            eprintln!(
-                                "{} Failed to sync packages!",
-                                "[!]".yellow()
-                            );
-                        }
-                    }
+                    std::process::exit(1);
                 }
             }
-            Err(error) => return Err(error),
+        }
+        else{
+            eprintln!(
+                "{} No packages to sync in group ({})!",
+                "[!]".yellow(),
+                &args[0].yellow()
+            );
         }
     }
     else if flags.contains(&'f'){
-        match read_label("[PATHS]", args
-            .get(0)
-            .unwrap_or(&String::new()),
-            home_dir
-            ){
-            Ok(text) =>{
-                for path in text.split_whitespace(){
-                    let path_name = path.split('/').last().unwrap();
-                        copy_dir(home_dir.to_owned() + &args[0] + "/configs/" + path_name, path);
+        let text = read_label("[CONFIGS]", &args[0], home_dir);
 
-                    println!(
-                        "{} Synced ({}) successfully!",
-                        "[~]".purple(),
-                        path_name.purple(),
-                    )
-                }
+        if !text.is_empty(){
+            for path in text.split_whitespace()
+            {
+                let path_name = path.split('/').last().unwrap();
+                copy_dir(home_dir.to_owned() + &args[0] + "/configs/" + path_name, path);
+    
+                println!(
+                    "{} Synced config ({}) successfully!",
+                    "[~]".purple(),
+                    path_name.purple(),
+                )
             }
-            Err(error) => return Err(error),
+        }
+        else{
+            eprintln!(
+                "{} No configs to sync in group ({})",
+                "[!]".yellow(),
+                &args[0].yellow()
+            );
         }
     }
     else if flags.contains(&'s'){
-        match read_label("[SCRIPTS]", args
-            .get(0)
-            .unwrap_or(&String::new()),
-            home_dir
-            ){
-                Ok(text) =>{
-                    for script in text.split_whitespace(){
-                        let mut handle = Command::new("/".to_owned() + home_dir + &args[0] + "/scripts/" + script);
-                        match handle.status(){
-                            Ok(_) => println!(
-                                "{} Successfully ran script ({})...",
-                                "[~]".purple(),
-                                script.purple()
-                            ),
-                            Err(error) => {
-                                if error.kind() == ErrorKind::NotFound{
-                                    println!(
-                                        "{} Script ({}) not installed to group! (use -h for help)",
-                                        "[!]".yellow(),
-                                        script.yellow()
-                                    )
-                                }
-                                else{
-                                    println!(
-                                        "{} Script ({}) failed to exit successfully!",
-                                        "[!]".yellow(),
-                                        script.yellow()
-                                    )
-                                }
-                            }
+        let text = read_label("[SCRIPTS]", &args[0], home_dir);
+
+        if !text.is_empty(){
+            for script in text.split_whitespace(){
+                let mut handle = Command::new("/".to_owned() + home_dir + &args[0] + "/scripts/" + script);
+
+                match handle.status(){
+                    Ok(_) => println!(
+                        "{} Successfully ran script ({})...",
+                        "[~]".purple(),
+                        script.purple()
+                    ),
+                    Err(error) => {
+                        if error.kind() == ErrorKind::NotFound{
+                            println!(
+                                "{} Script ({}) not installed to group! (use -h for help)",
+                                "[!]".yellow(),
+                                script.yellow()
+                            )
+                        }
+                        else{
+                            println!(
+                                "{} Script ({}) failed to exit successfully!",
+                                "[!]".yellow(),
+                                script.yellow()
+                            )
                         }
                     }
                 }
-                Err(error) => error.handle(),
             }
-       
+        }
+        else{
+            eprintln!(
+                "{} No scripts to sync in group ({})",
+                "[!]".yellow(),
+                &args[0].yellow()
+            );
+        }
     }
     else{
         eprintln!(
@@ -749,13 +785,17 @@ fn sync(flags: HashSet<char>, args: Vec<String>, home_dir: &str){
     }
 }
 
-fn query(flags: HashSet<char>, args: Vec<String>, home_dir: &str)-> Result<(), CW>{
+fn query(flags: HashSet<char>, args: Vec<String>, home_dir: &str){
+    bounds_check(&[CW::MissingFlag(flags)]);
+
     if flags.contains(&'h'){
-        println!("usage: {{-Q}} [options] [?group] [optional:entries]"); 
-        println!("options:");
-        println!("-g\tlist all groups installed to configs, including package and script totals");
-        println!("-p\tlist all group packages");
-        println!("-f\tlist all group files");
+        println!("usage: {{-Q}} [flag]");
+        println!("flags:");
+        println!("-g [?group(s)] : query installed group(s)");
+        println!("-f [group] [?config(s)]: query installed configs of a group");       
+        println!("-p [group] [?packages(s)] : query installed packages of a group");
+        println!("-s [group] [?scripts(s)] : query installed scripts of a group");      
+        println!("NOTE: ? = optional");
     }
     else if flags.contains(&'g'){
         //Credit Raforawesome (aka God)
@@ -767,218 +807,78 @@ fn query(flags: HashSet<char>, args: Vec<String>, home_dir: &str)-> Result<(), C
                 entry.is_dir()
             }).map(|x| x.unwrap()).collect();
 
-        if !args.is_empty(){
-            let mut status = 0;
-
-            for arg in &args{
-                let mut contains = false;
-                for group in &groups{
-                    let group = &group.file_name().into_string().unwrap();
-
-                    if arg == group{
-                        println!(
-                            "{} Found group ({})...", 
-                            "[?]".blue(),
-                            group.blue()
-                        );                   
+        if !groups.is_empty(){
+            if !args.is_empty(){
+                let mut status = 0;
     
-                        contains = true;
-                        break;
+                for arg in &args{
+                    let mut contains = groups.into_iter().any(|group|{
+                        let group = &group
+                            .file_name()
+                            .into_string()
+                            .unwrap();
+    
+                        arg == group
+                    });
+                    
+                    if contains{
+                        println!(
+                            "{} Group ({}) found...",
+                            "[?]".blue(),
+                            arg.blue()
+                        );
                     }
+                    else{
+                        eprintln!(
+                            "{} Group ({}) not found!",
+                            "[!]".yellow(),
+                            arg.yellow()
+                        );
+                        status += 1;
+                    }               
                 }
-
-                if !contains{
-                    eprintln!(
-                        "{} Group ({}) not found!",
-                        "[!]".yellow(),
-                        arg.yellow()
-                    );
-                    status += 1;
-                }               
+    
+                std::process::exit(status);
             }
-
-            return Err(CW::Status(status));
+            else{
+                for group in &groups{
+                    let group = group.file_name().into_string().unwrap();
+    
+                    println!(
+                        "{} :: ({}) packages :: ({}) configs :: ({}) scripts", 
+                        group.blue(),
+                        read_label("[PACKAGES]", &group, home_dir).split_whitespace().count(),
+                        read_label("[PATHS]", &group, home_dir).split_whitespace().count(),
+                        read_label("[SCRIPTS]", &group, home_dir).split_whitespace().count()
+                    );
+                }
+                println!("({}) groups found...", groups.len());
+            }
         }
         else{
-            for group in &groups{
-                let group = group.file_name().into_string().unwrap();
-
-                println!(
-                    "{} :: ({}) packages :: ({}) configs :: ({}) scripts", 
-                    group.blue(),
-                    if let Ok(text) = read_label("[PACKAGES]", &group, home_dir){text.split_whitespace().count()}
-                        else{0},
-                    if let Ok(text) = read_label("[PATHS]", &group, home_dir){text.split_whitespace().count()}
-                        else{0},
-                    if let Ok(text) = read_label("[SCRIPTS]", &group, home_dir){text.split_whitespace().count()}
-                        else{0}
-                );
-            }
-            println!("({}) groups found...", groups.len());
+            eprintln!(
+                "{} No groups installed!",
+                "[!]".yellow()
+            );
         }
     }
     else if flags.contains(&'p'){
-        match read_label("[PACKAGES]", args
-            .get(0)
-            .unwrap_or(&String::new()),
-            home_dir
-        ){
-            Ok(text) =>{
-                if args.len() > 1{
-                    let mut status = 0;
-
-                    for arg in &args[1..]{
-                        let mut contains = false;
-                        for package in text.split_whitespace(){
-                            if arg == package{
-                                println!(
-                                    "{} Found package ({}) in group ({})...", 
-                                    "[?]".blue(),
-                                    package.blue(),
-                                    &args[0].blue()
-                                );
-                                
-                                contains = true;
-                                break;
-                            }
-                        }
-
-                        if !contains{
-                            eprintln!(
-                                "{} Package ({}) not found in group ({})!",
-                                "[!]".yellow(),
-                                arg.yellow(),
-                                &args[0].yellow()
-                            );
-                            status += 1;
-                        }
-                    }
-
-                    return Err(CW::Status(status));
-                }
-                else{
-                    let mut count = 0;
-                    for package in text.split_whitespace(){
-                        print!("{}, ", package.blue());
-                        count += 1;
-                    }
-                    println!("({count}) packages found...");
-                }
-            }
-            Err(error) => error.handle(),
-        }
+        find(args, "[PACKAGES]", home_dir);
     }
     else if flags.contains(&'f'){
-        match read_label("[PATHS]", args
-            .get(0)
-            .unwrap_or(&String::new()),
-            home_dir
-        ){
-            Ok(text) =>{
-                if args.len() > 1{
-                    let mut status = 0;
-
-                    for arg in &args[1..]{
-                        let mut contains = false;
-                        for path in text.split_whitespace(){
-                            if arg == path.split('/').last().unwrap(){
-                                println!(
-                                    "{} Found config ({}) in group ({})...", 
-                                    "[?]".blue(),
-                                    arg.blue(),
-                                    &args[0].blue()
-                                );
-                                
-                                contains = true;
-                                break;
-                            }
-                        }
-
-                        if !contains{
-                            eprintln!(
-                                "{} Config ({}) not found in group ({})!",
-                                "[!]".yellow(),
-                                arg.yellow(),
-                                &args[0].yellow()
-                            );
-                            status += 1;
-                        }
-                    }
-
-                    return Err(CW::Status(status));
-                }
-                else{
-                    let mut count = 0;
-                    for  path in text.split_whitespace(){
-                        print!("{}, ", path.split('/').last().unwrap().blue());
-                        count += 1;
-                    }
-                    println!("({count}) configs found...");
-                }
-            }
-            Err(error) => return Err(error),
-        }
+        find(args, "[CONFIGS]", home_dir);
     }
     else if flags.contains(&'s'){
-        match read_label("[SCRIPTS]", args
-            .get(0)
-            .unwrap_or(&String::new()),
-            home_dir
-        ){
-            Ok(text) =>{
-                if args.len() > 1{
-                    let mut status = 0;
-
-                    for arg in &args[1..]{
-                        let mut contains = false;
-                        for package in text.split_whitespace(){
-                            if arg == package{
-                                println!(
-                                    "{} Found script ({}) in group ({})...", 
-                                    "[?]".blue(),
-                                    package.blue(),
-                                    &args[0].blue()
-                                );
-                                
-                                contains = true;
-                                break;
-                            }
-                        }
-
-                        if !contains{
-                            eprintln!(
-                                "{} Script ({}) not found in group ({})!",
-                                "[!]".yellow(),
-                                arg.yellow(),
-                                &args[0].yellow()
-                            );
-                            status += 1;
-                        }
-                    }
-
-                    return Err(CW::Status(status));
-                }
-                else{
-                    let mut count = 0;
-                    for package in text.split_whitespace(){
-                        print!("{}, ", package.blue());
-                        count += 1;
-                    }
-                    println!("({count}) scripts found...");
-                }
-            }
-            Err(error) => error.handle(),
-        }
+        find(args, "[SCRIPTS]", home_dir);
     }
     else{
-        if flags.is_empty(){
-            return Err(CW::MissingOption);
-        }
-
-        return Err(CW::InvalidOption);
+        eprintln!(
+            "{} Invalid flag! (use -h for help)",
+            "[!!!]".red()
+        );
+        
+        std::process::exit(1);
     }
-
-    Ok(())
 }
 
 fn parser(home_dir: &str){
