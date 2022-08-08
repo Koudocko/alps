@@ -1,0 +1,171 @@
+use colored::Colorize;
+use std::{
+    fs,
+    path::Path, 
+    io::prelude::*,
+}; 
+
+pub fn find(args: Vec<String>, label: &str, home_dir: &str, group: &String){
+    let text = read_label(label, group, home_dir);
+
+    if !args.is_empty(){
+        let mut status = 0;
+
+        for arg in &args{
+            let contains = text
+                .split_whitespace()
+                .any(|package| arg == package);
+
+            if contains{
+                println!(
+                    "{} Found {}/{}/{} ",
+                    "[?]".blue(),
+                    group.blue(),
+                    label.blue(),
+                    arg.blue()
+                );
+            }
+            else{
+                eprintln!(
+                    "{} {}/{}/{} not found!",
+                    "[!]".yellow(),
+                    group.yellow(),
+                    label.yellow(),
+                    arg.yellow()
+                );
+                status += 1;
+            }
+        }
+
+        std::process::exit(status);
+    }
+    else{
+        let mut count = 0;
+        for package in text.split_whitespace(){
+            print!("{}, ", package.blue());
+            count += 1;
+        }
+        println!("({count}) entries found...");
+    }
+}
+
+pub fn reformat_config(labels: &Vec<String>, group: &str, home_dir: &str){
+    let mut config_text = String::new();
+
+    for label in labels{
+        config_text.push_str(&(label.to_owned() + "\n"));
+
+        for entry in read_label(label, group, home_dir).split_whitespace(){
+            config_text.push_str (&(entry.to_owned() + "\n"));
+        }
+
+        if label != labels.last().unwrap(){
+            config_text.push('\n');
+        }
+    }
+    config_text.push('\n');
+
+    let mut handle = fs::OpenOptions::new()
+        .truncate(true)
+        .write(true)
+        .open(home_dir.to_owned() + group + "/" + group + ".conf")
+        .unwrap();
+
+    handle.write_all(config_text.as_bytes()).unwrap();
+}
+
+pub fn copy_dir<S, D>(src: S, dst: D)
+where
+   S: AsRef<Path>,
+   D: AsRef<Path>,
+{
+   let path = Path::new(src.as_ref());
+
+   if path.is_dir(){
+      fs::create_dir_all(&dst).unwrap();
+
+      for dir in fs::read_dir(src).unwrap(){
+         let dir = dir.unwrap();
+         copy_dir(dir.path(), dst.as_ref().join(dir.file_name()));
+      }
+   }
+   else if path.is_file(){
+      fs::copy(src, dst).unwrap();
+   }
+}
+
+pub fn read_label(label: &str, group:  &str, home_dir: &str)-> String{
+    let excludes = vec![
+        String::from("[PACKAGES]"),
+        String::from("[CONFIGS]"),
+        String::from("[SCRIPTS]")
+    ];
+
+    let mut text = String::new();
+
+    let mut handle = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .open(home_dir.to_owned() + group + "/" + group + ".conf")
+        .unwrap();
+    handle.read_to_string(&mut text).unwrap();
+    let text: Vec<&str> = text.split(&label).collect();
+
+    if text.len() > 1{
+        let mut text = text[1];
+
+        for exclude in &excludes{
+            text = text.split(exclude).next().unwrap();
+        }
+
+        text.to_string()
+    }
+    else{
+        String::new()
+    }
+}
+
+pub fn config_write(group: &str, label: &str, entry: &str, home_dir: &str, mode: bool){
+    let excludes = vec![
+        String::from("[PACKAGES]"),
+        String::from("[CONFIGS]"),
+        String::from("[SCRIPTS]")
+    ];
+
+    reformat_config(&excludes, group, home_dir);
+
+    let mut segments: Vec<String> = Vec::new();
+    for segment in &excludes{
+        let list = 
+            if mode{
+                read_label(segment, group, home_dir)
+            }
+            else{
+                read_label(segment, group, home_dir).split(entry).collect::<String>()
+            };
+        
+        if segment == label && mode{
+            segments.push(segment.to_owned() + "\n" + entry + &list);
+        }
+        else{
+            segments.push(segment.to_owned() + &list);
+        }
+    }
+
+    let mut handle = fs::OpenOptions::new()
+        .truncate(true)
+        .write(true)
+        .open(home_dir.to_owned() + group + "/" + group + ".conf")
+        .unwrap();           
+
+    for mut segment in segments{
+        if !segment.ends_with('\n'){
+            segment.push('\n');
+        }
+
+        handle.write_all(segment.as_bytes()).unwrap();
+    }
+
+    reformat_config(&excludes, group, home_dir);
+}
