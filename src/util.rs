@@ -3,9 +3,36 @@ use std::{
     fs,
     path::Path, 
     io::prelude::*,
+    process::Command,
 }; 
 
-pub fn find(args: Vec<String>, label: &str, home_dir: &str, group: &String){
+pub fn edit_file(file_path: &str, editor: &str){
+    match Command::new(&editor)
+            .arg(file_path) 
+            .status()
+        {
+            Ok(_) =>{
+                let file_name = file_path.split('/')
+                    .last()
+                    .unwrap();
+
+                println!(
+                    "{} Editing file ({})...",
+                    "[%]".cyan(),
+                    file_name.cyan()
+                );
+            }
+            Err(_) =>{
+                eprintln!(
+                    "{} Invalid editor! Update EDITOR environment variable...",
+                    "[!]".yellow()
+                );
+                std::process::exit(1);
+            }
+        }
+}
+
+pub fn find(args: Vec<String>, label: &str, home_dir: &str, group: &String, mutate: impl Fn(&str)-> &str){
     let text = read_label(label, group, home_dir);
 
     if !args.is_empty(){
@@ -14,7 +41,7 @@ pub fn find(args: Vec<String>, label: &str, home_dir: &str, group: &String){
         for arg in &args{
             let contains = text
                 .split_whitespace()
-                .any(|package| arg == package);
+                .any(|package| arg == mutate(package));
 
             if contains{
                 println!(
@@ -42,7 +69,7 @@ pub fn find(args: Vec<String>, label: &str, home_dir: &str, group: &String){
     else{
         let mut count = 0;
         for package in text.split_whitespace(){
-            print!("{}, ", package.blue());
+            print!("{}, ", mutate(package).blue());
             count += 1;
         }
         println!("({count}) entries found...");
@@ -76,22 +103,22 @@ pub fn reformat_config(labels: &Vec<String>, group: &str, home_dir: &str){
 
 pub fn copy_dir<S, D>(src: S, dst: D)
 where
-   S: AsRef<Path>,
-   D: AsRef<Path>,
+    S: AsRef<Path>,
+    D: AsRef<Path>,
 {
-   let path = Path::new(src.as_ref());
+    let path = Path::new(src.as_ref());
 
-   if path.is_dir(){
-      fs::create_dir_all(&dst).unwrap();
+    if path.is_dir(){
+        fs::create_dir_all(&dst).unwrap();
 
-      for dir in fs::read_dir(src).unwrap(){
-         let dir = dir.unwrap();
-         copy_dir(dir.path(), dst.as_ref().join(dir.file_name()));
-      }
-   }
-   else if path.is_file(){
-      fs::copy(src, dst).unwrap();
-   }
+        for dir in fs::read_dir(src).unwrap(){
+            let dir = dir.unwrap();
+            copy_dir(dir.path(), dst.as_ref().join(dir.file_name()));
+        }
+    }
+    else if path.is_file(){
+        fs::copy(src, dst).unwrap();
+    }
 }
 
 pub fn read_label(label: &str, group:  &str, home_dir: &str)-> String{

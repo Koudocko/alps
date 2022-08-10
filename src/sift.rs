@@ -1,11 +1,25 @@
 use colored::Colorize;
 use std::{
     fs,
+    env,
     path::{Path, PathBuf}, 
     process::Command,
     collections::HashSet, 
 }; 
 use crate::util;
+
+pub fn missing_editor(editor: &mut String){
+    match env::var("EDITOR"){
+        Ok(extract) => *editor = extract,
+        Err(_) =>{
+            eprintln!(
+                "{} Editor not found! Set environment variable EDITOR to continue...",
+                "[!!!]".red()
+            );
+            std::process::exit(1);
+        } 
+    }
+}
 
 pub fn missing_group(home_dir: &str, args: &mut Vec<String>, group: &mut String){
     if args.is_empty(){
@@ -36,7 +50,7 @@ pub fn missing_flag(flags: &HashSet<char>){
         std::process::exit(1);
     }
 }
-pub fn missing_args(home_dir: &str, args: &mut Vec<String>, len: usize){
+pub fn missing_args(args: &mut Vec<String>, len: usize){
     if args.len() < len{
         eprintln!(
             "{} Expected arguments! (use -h for help)",
@@ -79,7 +93,7 @@ pub fn invalid_groups(home_dir: &str, args: &mut Vec<String>, mode: bool){
             }
     }).collect();
 }
-pub fn invalid_packages(home_dir: &str, args: &mut Vec<String>, mode: bool, group: &mut String){
+pub fn invalid_packages(home_dir: &str, args: &mut Vec<String>, mode: bool, group: &str){
     *args = args.clone()
         .into_iter()
         .filter_map(|package|{
@@ -130,7 +144,7 @@ pub fn invalid_packages(home_dir: &str, args: &mut Vec<String>, mode: bool, grou
             }
     }).collect();
 }
-pub fn invalid_configs(home_dir: &str, args: &mut Vec<String>, mode: bool, group: &mut String){
+pub fn invalid_configs(home_dir: &str, args: &mut Vec<String>, mode: bool, group: &str){
         *args = args.clone()
         .into_iter()
         .filter_map(|config|{
@@ -193,11 +207,11 @@ pub fn invalid_configs(home_dir: &str, args: &mut Vec<String>, mode: bool, group
             }
     }).collect();
 }
-pub fn invalid_scripts(home_dir: &str, args: &mut Vec<String>, mode: bool, group: &mut String){
+pub fn invalid_scripts(home_dir: &str, args: &mut Vec<String>, mode: bool, group: &str){
     *args = args.clone()
         .into_iter()
         .filter_map(|script|{
-            let contains = util::read_label("[CONFIGS]", group, &home_dir)
+            let contains = util::read_label("[CONFIGS]", group, home_dir)
                 .split_whitespace()
                 .any(|entry| script == entry);
 

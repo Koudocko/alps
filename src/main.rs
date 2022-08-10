@@ -7,7 +7,7 @@ use std::{
     path::Path,
     process::Command,
     collections::HashSet, 
-    io::{ErrorKind},
+    io::ErrorKind,
 }; 
 use colored::Colorize;
 
@@ -23,7 +23,7 @@ fn install(flags: HashSet<char>, mut args: Vec<String>, home_dir: &str){
         println!("-s [group] [script(s)] : install script to group");
     } 
     else if flags.contains(&'g'){
-        sift::missing_args(home_dir, &mut args, 1);
+        sift::missing_args(&mut args, 1);
         sift::invalid_groups(home_dir, &mut args, true);
 
         for arg in args{
@@ -40,8 +40,8 @@ fn install(flags: HashSet<char>, mut args: Vec<String>, home_dir: &str){
         let mut group = String::new();
 
         sift::missing_group(home_dir, &mut args, &mut group);
-        sift::missing_args(home_dir, &mut args, 1);
-        sift::invalid_packages(home_dir, &mut args, true, &mut group);
+        sift::missing_args(&mut args, 1);
+        sift::invalid_packages(home_dir, &mut args, true, &group);
 
         for arg in args{
             util::config_write(&group, "[PACKAGES]", &arg, home_dir, true);
@@ -59,8 +59,8 @@ fn install(flags: HashSet<char>, mut args: Vec<String>, home_dir: &str){
         let mut group = String::new();
 
         sift::missing_group(home_dir, &mut args, &mut group);
-        sift::missing_args(home_dir, &mut args, 1);
-        sift::invalid_configs(home_dir, &mut args, true, &mut group);
+        sift::missing_args(&mut args, 1);
+        sift::invalid_configs(home_dir, &mut args, true, &group);
 
         fs::create_dir(home_dir.to_owned() + &group + "/configs");
 
@@ -88,8 +88,8 @@ fn install(flags: HashSet<char>, mut args: Vec<String>, home_dir: &str){
         let mut group = String::new();
 
         sift::missing_group(home_dir, &mut args, &mut group);
-        sift::missing_args(home_dir, &mut args, 1);
-        sift::invalid_scripts(home_dir, &mut args, true, &mut group);
+        sift::missing_args(&mut args, 1);
+        sift::invalid_scripts(home_dir, &mut args, true, &group);
 
         fs::create_dir(home_dir.to_owned() + &group + "/scripts");
         
@@ -136,11 +136,11 @@ fn remove(flags: HashSet<char>, mut args: Vec<String>, home_dir: &str){
         println!("-s [group] [script(s)] : remove specified script(s) of group");       
     }
     else if flags.contains(&'g'){
-        sift::missing_args(home_dir, &mut args, 1);
+        sift::missing_args(&mut args, 1);
         sift::invalid_groups(home_dir, &mut args, false);
 
         for arg in args{
-            if let Ok(_) = fs::remove_dir_all(home_dir.to_owned() + &arg){
+            if fs::remove_dir_all(home_dir.to_owned() + &arg).is_ok(){
                 println!(
                     "{} Removed group ({})...",
                     "[-]".green(),
@@ -153,8 +153,8 @@ fn remove(flags: HashSet<char>, mut args: Vec<String>, home_dir: &str){
         let mut group = String::new();
 
         sift::missing_group(home_dir, &mut args, &mut group);
-        sift::missing_args(home_dir, &mut args, 1);
-        sift::invalid_configs(home_dir, &mut args, false, &mut group);
+        sift::missing_args(&mut args, 1);
+        sift::invalid_configs(home_dir, &mut args, false, &group);
 
 
         for arg in &args{
@@ -182,8 +182,8 @@ fn remove(flags: HashSet<char>, mut args: Vec<String>, home_dir: &str){
         let mut group = String::new();
 
         sift::missing_group(home_dir, &mut args, &mut group);
-        sift::missing_args(home_dir, &mut args, 1);
-        sift::invalid_scripts(home_dir, &mut args, false, &mut group);
+        sift::missing_args(&mut args, 1);
+        sift::invalid_scripts(home_dir, &mut args, false, &group);
 
          for arg in &args{
             util::config_write(&group, "[SCRIPTS]", &arg, home_dir, false);
@@ -202,8 +202,8 @@ fn remove(flags: HashSet<char>, mut args: Vec<String>, home_dir: &str){
         let mut group = String::new();
 
         sift::missing_group(home_dir, &mut args, &mut group);
-        sift::missing_args(home_dir, &mut args, 1);
-        sift::invalid_packages(home_dir, &mut args, false, &mut group);
+        sift::missing_args(&mut args, 1);
+        sift::invalid_packages(home_dir, &mut args, false, &group);
 
         for arg in &args{
             util::config_write(&group, "[PACKAGES]", arg, home_dir, false);
@@ -280,6 +280,8 @@ fn sync(flags: HashSet<char>, mut args: Vec<String>, home_dir: &str){
                             "[!]".yellow(),
                             package.yellow()
                         );
+                        util::config_write(&group, "[PACKAGES]", package, home_dir, false);
+
                         None
                     }
                 }
@@ -404,7 +406,7 @@ fn query(flags: HashSet<char>, mut args: Vec<String>, home_dir: &str){
     }
     else if flags.contains(&'g'){
         //Credit Raforawesome (aka God)
-        /*let groups: Vec<fs::DirEntry> = fs::read_dir(home_dir).unwrap()
+        let groups: Vec<fs::DirEntry> = fs::read_dir(home_dir).unwrap()
             .filter(|entry|{
                 let entry = entry.as_ref().unwrap()
                     .file_type().unwrap();
@@ -417,13 +419,14 @@ fn query(flags: HashSet<char>, mut args: Vec<String>, home_dir: &str){
                 let mut status = 0;
     
                 for arg in &args{
-                    let contains = groups.into_iter().any(|group|{
-                        let group = &group
-                            .file_name()
-                            .into_string()
-                            .unwrap();
-    
-                        arg == group
+                    let contains = groups.iter()
+                        .any(|group|{
+                            let group = &group
+                                .file_name()
+                                .into_string()
+                                .unwrap();
+        
+                            arg == group
                     });
                     
                     if contains{
@@ -450,11 +453,12 @@ fn query(flags: HashSet<char>, mut args: Vec<String>, home_dir: &str){
                     let group = group.file_name().into_string().unwrap();
     
                     println!(
-                        "{} :: ({}) packages :: ({}) configs :: ({}) scripts", 
+                        "{} {} :: ({}) packages :: ({}) configs :: ({}) scripts", 
+                        "[?]".blue(),
                         group.blue(),
-                        read_label("[PACKAGES]", &group, home_dir).split_whitespace().count(),
-                        read_label("[CONFIGS]", &group, home_dir).split_whitespace().count(),
-                        read_label("[SCRIPTS]", &group, home_dir).split_whitespace().count()
+                        util::read_label("[PACKAGES]", &group, home_dir).split_whitespace().count(),
+                        util::read_label("[CONFIGS]", &group, home_dir).split_whitespace().count(),
+                        util::read_label("[SCRIPTS]", &group, home_dir).split_whitespace().count()
                     );
                 }
                 println!("({}) groups found...", groups.len());
@@ -465,21 +469,128 @@ fn query(flags: HashSet<char>, mut args: Vec<String>, home_dir: &str){
                 "{} No groups installed!",
                 "[!]".yellow()
             );
-        }*/
+        }
     }
     else if flags.contains(&'p'){
-        let group = String::new();
-        util::find(args, "[PACKAGES]", home_dir, &group);
+        let mut group = String::new();
+        sift::missing_group(home_dir, &mut args, &mut group);
+        util::find(args, "[PACKAGES]", home_dir, &group, |package| package);
     }
     else if flags.contains(&'f'){
         let mut group = String::new();
         sift::missing_group(home_dir, &mut args, &mut group);
-        util::find(args, "[CONFIGS]", home_dir, &group);
+        util::find(args, "[CONFIGS]", home_dir, &group, |config|{
+            config.split('/').last().unwrap()
+        });
     }
     else if flags.contains(&'s'){
         let mut group = String::new();
         sift::missing_group(home_dir, &mut args, &mut group);
-        util::find(args, "[SCRIPTS]", home_dir, &group);
+        util::find(args, "[SCRIPTS]", home_dir, &group, |script| script);
+    }
+    else{
+        eprintln!(
+            "{} Invalid flag! (use -h for help)",
+            "[!!!]".red()
+        );
+        
+        std::process::exit(1);
+    }
+}
+
+fn edit(flags: HashSet<char>, mut args: Vec<String>, home_dir: &str){
+    let mut editor = String::new();
+    sift::missing_flag(&flags);
+    sift::missing_editor(&mut editor);
+
+    if flags.contains(&'h'){
+        println!("usage: {{-E}} [flag]");
+        println!("flags:");
+        println!("-g [group(s)] : edit installed group(s)");
+        println!("-f [group] [config(s)]: edit installed configs of a group");       
+        println!("-s [group] [scripts(s)] : edit installed scripts of a group");      
+    }   
+    else if flags.contains(&'g'){
+        sift::missing_args(&mut args, 1);
+
+        for arg in &args{
+            let config_path = home_dir.to_owned() 
+                + arg 
+                + "/" 
+                + arg 
+                + ".conf";
+
+            if Path::new(&config_path).is_file(){
+                util::edit_file(&config_path, &editor);
+            }
+            else{
+                eprintln!(
+                    "{} Group ({}) config does not exist!",
+                    "[!]".yellow(),
+                    arg.yellow()
+                );
+            }
+        }
+    }
+    else if flags.contains(&'f'){
+        let mut group = String::new();
+        sift::missing_group(home_dir, &mut args, &mut group);
+        sift::missing_args(&mut args, 1);
+
+        for arg in &args{
+            let config_path = home_dir.to_owned()
+                + &group
+                + "/configs/"
+                + arg;
+
+            let path = Path::new(&config_path);
+            if path.is_file(){
+                util::edit_file(&config_path, &editor);
+            }
+            else if path.is_dir(){
+                if env::set_current_dir(&config_path).is_ok(){
+                    println!(
+                        "{} Changed current directory to ({})...",
+                        "[%]".cyan(),
+                        config_path.cyan()
+                    );
+                }
+            }
+            else{
+                eprintln!(
+                    "{} {}/{}/{} does not exist!",
+                    "[!]".yellow(),
+                    group.yellow(),
+                    "configs".yellow(),
+                    arg.yellow()
+                );
+            }
+        }
+    }
+    else if flags.contains(&'s'){
+        let mut group = String::new();
+        sift::missing_group(home_dir, &mut args, &mut group);
+        sift::missing_args(&mut args, 1);
+
+        for arg in &args{
+            let config_path = home_dir.to_owned()
+                + &group
+                + "/scripts/"
+                + arg;
+
+            if Path::new(&config_path).is_file(){
+                util::edit_file(&config_path, &editor);
+            }
+            else{
+                eprintln!(
+                    "{} {}/{}/{} does not exist!",
+                    "[!]".yellow(),
+                    group.yellow(),
+                    "scripts".yellow(),
+                    arg.yellow()
+                );
+            }
+        }
     }
     else{
         eprintln!(
@@ -512,7 +623,7 @@ fn parser(home_dir: &str){
         if arg.as_bytes()[0] as char == '-'{
             for flag in arg.chars().skip(1){
                 match flag{
-                    'I' | 'R' | 'S' | 'Q' =>{
+                    'I' | 'R' | 'S' | 'Q' | 'E' =>{
                         if mode == None{
                             mode = Some(flag); 
                         }
@@ -549,6 +660,7 @@ fn parser(home_dir: &str){
         Some('R') => remove(flags, args, home_dir),
         Some('S') => sync(flags, args, home_dir),
         Some('Q') => query(flags, args, home_dir),
+        Some('E') => edit(flags, args, home_dir),
         None => eprintln!(
             "{} Expected operation! (use -h for help)",
             "[!!!]".red()
