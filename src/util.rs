@@ -4,15 +4,16 @@ use std::{
     path::Path, 
     io::prelude::*,
     process::Command,
+    io::ErrorKind
 }; 
 
 pub fn edit_file(file_path: &str, editor: &str){
     match Command::new(&editor)
-            .arg(file_path) 
-            .status()
-        {
+        .arg(file_path) 
+        .status()
+    {
             Ok(_) =>{
-                let file_name = file_path.split('/')
+                let file_name = file_path.split("/configs/")
                     .last()
                     .unwrap();
 
@@ -29,7 +30,7 @@ pub fn edit_file(file_path: &str, editor: &str){
                 );
                 std::process::exit(1);
             }
-        }
+    }
 }
 
 pub fn find(args: Vec<String>, label: &str, home_dir: &str, group: &String, mutate: impl Fn(&str)-> &str){
@@ -109,15 +110,47 @@ where
     let path = Path::new(src.as_ref());
 
     if path.is_dir(){
-        fs::create_dir_all(&dst).unwrap();
-
         for dir in fs::read_dir(src).unwrap(){
             let dir = dir.unwrap();
             copy_dir(dir.path(), dst.as_ref().join(dir.file_name()));
         }
     }
     else if path.is_file(){
-        fs::copy(src, dst).unwrap();
+        let parent = dst.as_ref().parent().unwrap();
+
+        if let Err(error) = fs::create_dir_all(parent){
+            if error.kind() == ErrorKind::PermissionDenied
+                &&
+                Command::new("sudo")
+                    .args(["mkdir", "-p", parent.to_str().unwrap()])
+                    .output()
+                    .is_err()
+            {
+                eprintln!(
+                    "{} Command ({}) failed to run!",
+                    "[!!!]".red(),
+                    "mkdir".red()
+                );
+                std::process::exit(1);
+            }
+        }
+
+        if let Err(error) = fs::copy(&src, &dst){
+            if error.kind() == ErrorKind::PermissionDenied
+                && 
+                Command::new("sudo")
+                    .args(["cp", "-r", src.as_ref().as_os_str().to_str().unwrap(), parent.to_str().unwrap()])
+                    .output()
+                    .is_err()
+            {
+                eprintln!(
+                    "{} Command ({}) failed to run!",
+                    "[!!!]".red(),
+                    "cd".red()
+                );
+                std::process::exit(1);
+            }
+        }
     }
 }
 

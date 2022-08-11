@@ -145,7 +145,7 @@ pub fn invalid_packages(home_dir: &str, args: &mut Vec<String>, mode: bool, grou
     }).collect();
 }
 pub fn invalid_configs(home_dir: &str, args: &mut Vec<String>, mode: bool, group: &str){
-        *args = args.clone()
+    *args = args.clone()
         .into_iter()
         .filter_map(|config|{
             if mode{
@@ -211,11 +211,11 @@ pub fn invalid_scripts(home_dir: &str, args: &mut Vec<String>, mode: bool, group
     *args = args.clone()
         .into_iter()
         .filter_map(|script|{
-            let contains = util::read_label("[CONFIGS]", group, home_dir)
-                .split_whitespace()
-                .any(|entry| script == entry);
-
             if mode{
+                let contains = util::read_label("[SCRIPTS]", group, home_dir)
+                    .split_whitespace()
+                    .any(|entry| script.split('/').last().unwrap() == entry);
+
                 match fs::canonicalize(&script){
                     Ok(_) =>{
                         if contains{
@@ -242,6 +242,10 @@ pub fn invalid_scripts(home_dir: &str, args: &mut Vec<String>, mode: bool, group
                 }
             }            
             else{
+                let contains = util::read_label("[SCRIPTS]", group, home_dir)
+                    .split_whitespace()
+                    .any(|entry| script == entry );
+
                 if !contains{
                     eprintln!(
                         "{} Script ({}) does not exist in group!",

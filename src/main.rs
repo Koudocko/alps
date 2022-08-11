@@ -50,7 +50,7 @@ fn install(flags: HashSet<char>, mut args: Vec<String>, home_dir: &str){
                 "{} Installed {}/{}/{}",
                 "[+]".green(),
                 group.green(),
-                "PACKAGES".green(),
+                "packages".green(),
                 arg.green()
             );
         }
@@ -66,8 +66,8 @@ fn install(flags: HashSet<char>, mut args: Vec<String>, home_dir: &str){
 
         for arg in &args{
             util::config_write(&group, "[CONFIGS]", arg, home_dir, true);
-
             let arg_name = arg.split('/').last().unwrap();
+
             util::copy_dir(
                 arg, 
                 home_dir.to_owned()
@@ -79,7 +79,7 @@ fn install(flags: HashSet<char>, mut args: Vec<String>, home_dir: &str){
                 "{} Installed {}/{}/{}",
                 "[+]".green(),
                 group.green(),
-                "CONFIGS".green(),
+                "configs".green(),
                 arg_name.green()
             );
         }
@@ -94,24 +94,24 @@ fn install(flags: HashSet<char>, mut args: Vec<String>, home_dir: &str){
         fs::create_dir(home_dir.to_owned() + &group + "/scripts");
         
         for arg in &args{
-            util::config_write(&group, "[SCRIPTS]", arg, home_dir, true);
+            let arg_name = arg.split('/').last().unwrap();
+            util::config_write(&group, "[SCRIPTS]", arg_name, home_dir, true);
 
-            util::copy_dir(
-                arg, 
+            fs::copy(
+                &arg, 
                 home_dir.to_owned()
                     + &group
                     + "/scripts/"
-                    + arg
+                    + arg_name
             );
 
             println!(
                 "{} Installed {}/{}/{}",
                 "[+]".green(),
-                arg.green(),
                 group.green(),
-                "SCRIPTS".green()
+                "scripts".green(),
+                arg_name.green()
             );
-
         }
     }
     else{
@@ -173,7 +173,7 @@ fn remove(flags: HashSet<char>, mut args: Vec<String>, home_dir: &str){
                 "{} Removed {}/{}/{}...",
                 "[-]".green(),
                 group.green(),
-                "[CONFIGS]".green(),
+                "configs".green(),
                 config_name.green()
             );
         }
@@ -186,14 +186,14 @@ fn remove(flags: HashSet<char>, mut args: Vec<String>, home_dir: &str){
         sift::invalid_scripts(home_dir, &mut args, false, &group);
 
          for arg in &args{
-            util::config_write(&group, "[SCRIPTS]", &arg, home_dir, false);
-            fs::remove_file(arg);
+            util::config_write(&group, "[SCRIPTS]", arg, home_dir, false);
+            fs::remove_file(home_dir.to_owned() + &group + "/scripts/" + arg);
 
             println!(
                 "{} Removed {}/{}/{}...",
                 "[-]".green(),
                 group.green(),
-                "[SCRIPTS]".green(),
+                "scripts".green(),
                 arg.green()
             );
         } 
@@ -212,7 +212,7 @@ fn remove(flags: HashSet<char>, mut args: Vec<String>, home_dir: &str){
                 "{} Removed {}/{}/{}...",
                 "[-]".green(),
                 group.green(),
-                "[PACKAGES]".green(),
+                "packages".green(),
                 arg.green()
             );
         }
@@ -242,9 +242,13 @@ fn sync(flags: HashSet<char>, mut args: Vec<String>, home_dir: &str){
         println!("-s [group] : sync system with only group scripts");              
     }
     else if flags.contains(&'p'){
+        let mut num_packages = 0;
+
         let packages = util::read_label("[PACKAGES]", &group, home_dir)
             .split_whitespace()
             .filter_map(|package|{
+                num_packages += 1;
+
                 if Command::new("pacman")
                     .args(["-Q", package])
                     .output()
@@ -285,8 +289,7 @@ fn sync(flags: HashSet<char>, mut args: Vec<String>, home_dir: &str){
                         None
                     }
                 }
-            }
-            ).collect::<Vec<String>>();
+            }).collect::<Vec<String>>();
         
         if !packages.is_empty(){
             match Command::new("sudo")
@@ -296,9 +299,10 @@ fn sync(flags: HashSet<char>, mut args: Vec<String>, home_dir: &str){
             {
                 Ok(_) =>{
                     println!(
-                        "{} Successfully synced packages...",
-                        "[~]".purple()
-                    )
+                        "{} Synced ({}/{num_packages}) packages...",
+                        "[~]".purple(),
+                        packages.len()
+                    );
                 }
                 Err(_) =>{
                     eprintln!(
@@ -322,17 +326,40 @@ fn sync(flags: HashSet<char>, mut args: Vec<String>, home_dir: &str){
         let text = util::read_label("[CONFIGS]", &group, home_dir);
 
         if !text.is_empty(){
-            for path in text.split_whitespace()
+            let mut num_configs = 0;
+
+            let paths = text.split_whitespace().collect::<Vec<&str>>();
+            for path in &paths
             {
                 let path_name = path.split('/').last().unwrap();
-                util::copy_dir(home_dir.to_owned() + &group + "/configs/" + path_name, path);
-    
-                println!(
-                    "{} Synced config ({}) successfully!",
-                    "[~]".purple(),
-                    path_name.purple(),
-                )
+                let config_path = home_dir.to_owned() + &group + "/configs/" + path_name;
+
+                if Path::new(&config_path).exists(){
+                    num_configs += 1;
+                    util::copy_dir(config_path, path);
+        
+                    println!(
+                        "{} Synced config ({})!",
+                        "[~]".purple(),
+                        path_name.purple(),
+                    );
+                }
+                else{
+                    eprintln!(
+                        "{} Contents of config ({}) do not exist!",
+                        "[!]".yellow(),
+                        path_name.yellow()
+                    );
+
+                    util::config_write(&group, "[CONFIGS]", path, home_dir, false);
+                }
             }
+
+            println!(
+                "{} Synced ({num_configs}/{}) configs...",
+                "[~]".purple(),
+                paths.len()
+            );
         }
         else{
             eprintln!(
@@ -346,33 +373,48 @@ fn sync(flags: HashSet<char>, mut args: Vec<String>, home_dir: &str){
         let text = util::read_label("[SCRIPTS]", &group, home_dir);
 
         if !text.is_empty(){
+            let mut num_scripts = 0;
+
+            let scripts = text.split_whitespace().collect::<Vec<&str>>();
             for script in text.split_whitespace(){
                 let mut handle = Command::new("/".to_owned() + home_dir + &group + "/scripts/" + script);
 
                 match handle.status(){
-                    Ok(_) => println!(
-                        "{} Successfully ran script ({})...",
-                        "[~]".purple(),
-                        script.purple()
-                    ),
+                    Ok(_) => {
+                        num_scripts += 1;
+
+                        println!(
+                            "{} Successfully ran script ({})...",
+                            "[~]".purple(),
+                            script.purple()
+                        );
+                    }
                     Err(error) => {
                         if error.kind() == ErrorKind::NotFound{
-                            println!(
-                                "{} Script ({}) not installed to group! (use -h for help)",
+                            eprintln!(
+                                "{} Contents of script ({}) do not exist!",
                                 "[!]".yellow(),
                                 script.yellow()
-                            )
+                            );
+
+                            util::config_write(&group, "[SCRIPTS]", script, home_dir, false);
                         }
                         else{
-                            println!(
+                            eprintln!(
                                 "{} Script ({}) failed to exit successfully!",
                                 "[!]".yellow(),
                                 script.yellow()
-                            )
+                            );
                         }
                     }
                 }
             }
+
+            println!(
+                "{} Synced ({num_scripts}/{}) scripts...",
+                "[~]".purple(),
+                scripts.len()
+            );
         }
         else{
             eprintln!(
@@ -548,13 +590,11 @@ fn edit(flags: HashSet<char>, mut args: Vec<String>, home_dir: &str){
                 util::edit_file(&config_path, &editor);
             }
             else if path.is_dir(){
-                if env::set_current_dir(&config_path).is_ok(){
-                    println!(
-                        "{} Changed current directory to ({})...",
-                        "[%]".cyan(),
-                        config_path.cyan()
-                    );
-                }
+                eprintln!(
+                    "{} Config ({}) is a directory!",
+                    "[!]".yellow(),
+                    config_path.yellow()
+                );
             }
             else{
                 eprintln!(
