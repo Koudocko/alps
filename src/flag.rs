@@ -9,12 +9,12 @@ use std::{
 use colored::Colorize;
 
 pub fn install_help(){
-    println!("usage: {{-I}} [flag]");
-    println!("flags:");
-    println!("-g [group(s)] : install group to config");
-    println!("-c [group] [config(s)] : install file to group");
-    println!("-p [group] [package(s)] : install package to group");
-    println!("-s [group] [script(s)] : install script to group");
+    println!("{} {{-I}} [flag] [...]", "usage:".white());
+    println!("{}", "flags:".white());
+    println!("   {{-g --group}} [group(s)] : install group to config");
+    println!("   {{-c --config}} [group] [config(s)] : install file to group");
+    println!("   {{-p --package}} [group] [package(s)] : install package to group");
+    println!("   {{-s --script}} [group] [script(s)] : install script to group");
 }
 
 pub fn install_group(mut args: Vec<String>, home_dir: &str){
@@ -116,12 +116,12 @@ pub fn install_script(mut args: Vec<String>, home_dir: &str){
 }
 
 pub fn remove_help(){
-    println!("usage: {{-R}} [flag]");
-    println!("flags:");
-    println!("-g [group(s)] : remove specified groups including contents");
-    println!("-c [group] [configs] : remove specified config(s) of group");       
-    println!("-p [group] [package(s)] : remove specified package(s) of group");
-    println!("-s [group] [script(s)] : remove specified script(s) of group");       
+    println!("{} {{-R}} [flag]", "usage:".white());
+    println!("{}", "flags:".white());
+    println!("   {{-g --group}} [group(s)] : remove specified groups including contents");
+    println!("   {{-c --config}} [group] [config(s)] : remove specified config(s) of group");       
+    println!("   {{-p --package}} [group] [package(s)] : remove specified package(s) of group");
+    println!("   {{-s --script}} [group] [script(s)] : remove specified script(s) of group");       
 }
 
 pub fn remove_group(mut args: Vec<String>, home_dir: &str){
@@ -211,12 +211,12 @@ pub fn remove_script(mut args: Vec<String>, home_dir: &str){
 }
 
 pub fn sync_help(){
-    println!("usage: {{-S}} [flag]");
-    println!("flags:");
-    println!("-g [group] : sync system with all group contents");
-    println!("-c [group] : sync system with only group configs");       
-    println!("-p [group] : sync system with only group packages");
-    println!("-s [group] : sync system with only group scripts"); 
+    println!("{} {{-S}} [flag]", "usage:".white());
+    println!("{}", "flags:".white());
+    println!("   {{-g --group}} [group] : sync system with all group contents");
+    println!("   {{-c --config}} [group] : sync system with only group configs");       
+    println!("   {{-p --package}} [group] : sync system with only group packages");
+    println!("   {{-s --script}} [group] : sync system with only group scripts"); 
 }
 
 pub fn sync_group(home_dir: &str, group: &str){
@@ -437,13 +437,13 @@ pub fn sync_script(home_dir: &str, group: &str){
 }
 
 pub fn query_help(){
-    println!("usage: {{-Q}} [flag]");
-    println!("flags:");
-    println!("-g [?group(s)] : query installed group(s)");
-    println!("-c [group] [?config(s)]: query installed configs of a group");       
-    println!("-p [group] [?packages(s)] : query installed packages of a group");
-    println!("-s [group] [?scripts(s)] : query installed scripts of a group");      
-    println!("NOTE: ? = optional");
+    println!("{} {{-Q}} [flag]", "usage:".white());
+    println!("{}", "flags:".white());
+    println!("   {{-g --group}} [?group(s)] : query installed group(s)");
+    println!("   {{-c --config}} [group] [?config(s)]: query installed configs of a group");       
+    println!("   {{-p --package}} [group] [?packages(s)] : query installed packages of a group");
+    println!("   {{-s --script}} [group] [?scripts(s)] : query installed scripts of a group");      
+    println!("{} ? = optional", "hint:".white());
 }
 
 pub fn query_group(args: Vec<String>, home_dir: &str){
@@ -535,11 +535,11 @@ pub fn query_script(mut args: Vec<String>, home_dir: &str){
 }
 
 pub fn edit_help(){
-    println!("usage: {{-E}} [flag]");
-    println!("flags:");
-    println!("-g [group(s)] : edit installed group(s)");
-    println!("-c [group] [config(s)]: edit installed configs of a group");       
-    println!("-s [group] [scripts(s)] : edit installed scripts of a group");      
+    println!("{} {{-E}} [flag]", "usage".white());
+    println!("{}", "flags:".white());
+    println!("   {{-g --group}} [group(s)] : edit installed group(s)");
+    println!("   {{-c --config}} [group] [config(s)]: edit installed configs of a group");       
+    println!("   {{-s --script}} [group] [scripts(s)] : edit installed scripts of a group");      
 }
 
 pub fn edit_group(mut args: Vec<String>, home_dir: &str, editor: String){

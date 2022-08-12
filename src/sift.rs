@@ -8,6 +8,36 @@ use std::{
 }; 
 use crate::util;
 
+pub fn invalid_operation(operation: &str){
+    let hyphen = 
+        if operation.len() == 1{ "-" }
+        else { "" };
+
+    eprintln!(
+        "{} Invalid operation ({}{})!",
+        "[!!!]".red(),
+        hyphen.red(),
+        operation.red()
+    );
+    util::help_menu();
+
+    std::process::exit(1);
+}
+
+pub fn duplicate_operation(mode: &mut Option<String>, flag: String){
+    if *mode == None{
+       *mode = Some(flag); 
+    }
+    else{
+        eprintln!(
+            "{} Cannot use more than one operation!",
+            "[!!!]".red()
+        );
+
+        std::process::exit(1);
+    }
+}
+
 pub fn invalid_flag(){
     eprintln!(
         "{} Invalid flag! (use -h for help)",
@@ -50,7 +80,7 @@ pub fn missing_group(home_dir: &str, args: &mut Vec<String>, group: &mut String)
     *group = args[0].clone();
     args.remove(0);
 }
-pub fn missing_flag(flags: &HashSet<char>){
+pub fn missing_flag(flags: &HashSet<String>){
     if flags.is_empty(){
         eprintln!(
             "{} Expected flag! (use -h for help)",

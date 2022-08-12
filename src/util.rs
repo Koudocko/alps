@@ -8,13 +8,14 @@ use std::{
 }; 
 
 pub fn help_menu(){
-    println!("usage: alps <operation>");
-    println!("operations:");
-    println!("-Q [flags] : query installed groups and their contents in your config");
-    println!("-S [flags] : sync your system with a group and their contents");       
-    println!("-I [flags] : install a group and their contents in your config");
-    println!("-R [flags] : remove a group and their contents in your config");
-    println!("-E [flags] : edit a group and their contents in your config");
+    println!("{} alps <operation> [...]", "usage:".white());
+    println!("{}", "operations:".white());
+    println!("   alps {{-Q --query}} [flags] : query installed groups and their contents in your config");
+    println!("   alps {{-S --sync}} [flags] : sync your system with a group and their contents");       
+    println!("   alps {{-I --install}} [flags] : install a group and their contents in your config");
+    println!("   alps {{-R --remove}} [flags] : remove a group and their contents in your config");
+    println!("   alps {{-E --edit}} [flags] : edit a group and their contents in your config");
+    println!("{} use {{-h --help}} on any operation for list of flags", "hint:".white())
 }
 
 pub fn edit_file(file_path: &str, editor: &str){
