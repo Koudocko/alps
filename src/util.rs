@@ -4,7 +4,7 @@ use std::{
     path::Path, 
     io::prelude::*,
     process::Command,
-    io::ErrorKind
+    io::ErrorKind, ascii::AsciiExt
 }; 
 
 pub fn help_menu(){
@@ -55,6 +55,7 @@ pub fn find(args: Vec<String>, label: &str, home_dir: &str, group: &String, muta
                 .split_whitespace()
                 .any(|package| arg == mutate(package));
 
+            let label = &label[1..label.len()-1].to_lowercase();
             if contains{
                 println!(
                     "{} Found {}/{}/{} ",

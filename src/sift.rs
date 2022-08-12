@@ -188,9 +188,8 @@ pub fn invalid_configs(home_dir: &str, args: &mut Vec<String>, mode: bool, group
         .into_iter()
         .filter_map(|config|{
             if mode{
-                let true_path = fs::canonicalize(PathBuf::from(&config));
                 
-                match true_path{
+                match fs::canonicalize(PathBuf::from(&config)){
                     Ok(true_path) =>{
                         let true_path = true_path.into_os_string()
                             .into_string()
@@ -257,21 +256,36 @@ pub fn invalid_scripts(home_dir: &str, args: &mut Vec<String>, mode: bool, group
 
                 match fs::canonicalize(&script){
                     Ok(_) =>{
+                        let true_name =
+                            if script.ends_with('/'){ script[..script.len()-1].to_owned() }
+                            else{ script };
+
                         if contains{
                             eprintln!(
                                 "{} Script ({}) already installed to group!",
                                 "[!]".yellow(),
-                                script.yellow()
+                                true_name.yellow()
                             );
                             None
                         }
                         else{
-                            Some(script)
+                            if !Path::new(&true_name).is_file(){
+                                eprintln!(
+                                    "{} Script ({}) is not a file!",
+                                    "[!]".yellow(),
+                                    true_name.yellow()
+                                );
+
+                                None
+                            }
+                            else{
+                                Some(true_name)
+                            }
                         }                                   
                     }
                     Err(_) =>{
                         eprintln!(
-                            "{} Path to Script ({}) does not exist!",
+                            "{} Path to script ({}) does not exist!",
                             "[!]".yellow(),
                             script.yellow()
                         );

@@ -388,7 +388,14 @@ pub fn sync_script(home_dir: &str, group: &str){
 
     if !scripts.is_empty(){
         for script in &scripts{
-            let mut handle = Command::new("/".to_owned() + home_dir + group + "/scripts/" + script);
+            let script_path = home_dir.to_owned() + group + "/scripts/" + script;
+            let mut handle = Command::new("/".to_owned() + &script_path);
+
+            println!(
+                "{} Running script ({})...",
+                "[~]".purple(),
+                script.purple()
+            );
 
             match handle.status(){
                 Ok(_) => {
@@ -407,16 +414,22 @@ pub fn sync_script(home_dir: &str, group: &str){
                             "[!]".yellow(),
                             script.yellow()
                         );
-
-                        util::config_write(group, "[SCRIPTS]", script, home_dir, false);
                     }
                     else{
                         eprintln!(
-                            "{} Script ({}) failed to exit successfully!",
+                            "{} Script ({}) failed to run!",
                             "[!]".yellow(),
                             script.yellow()
                         );
                     }
+
+                    if Path::new(&script_path).is_dir(){
+                        fs::remove_dir_all(script_path);
+                    }
+                    else if Path::new(&script_path).is_file(){
+                        fs::remove_file(script_path);
+                    }
+                    util::config_write(group, "[SCRIPTS]", script, home_dir, false);
                 }
             }
         }
@@ -575,6 +588,9 @@ pub fn edit_config(mut args: Vec<String>, home_dir: &str, editor: String){
             + &group
             + "/configs/"
             + arg;
+        let config_name = config_path.split("/configs/")
+            .last()
+            .unwrap();
 
         let path = Path::new(&config_path);
         if path.is_file(){
@@ -584,7 +600,7 @@ pub fn edit_config(mut args: Vec<String>, home_dir: &str, editor: String){
             eprintln!(
                 "{} Config ({}) is a directory!",
                 "[!]".yellow(),
-                config_path.yellow()
+                config_name.yellow()
             );
         }
         else{
