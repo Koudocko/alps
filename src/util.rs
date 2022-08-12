@@ -7,6 +7,16 @@ use std::{
     io::ErrorKind
 }; 
 
+pub fn help_menu(){
+    println!("usage: alps <operation>");
+    println!("operations:");
+    println!("-Q [flags] : query installed groups and their contents in your config");
+    println!("-S [flags] : sync your system with a group and their contents");       
+    println!("-I [flags] : install a group and their contents in your config");
+    println!("-R [flags] : remove a group and their contents in your config");
+    println!("-E [flags] : edit a group and their contents in your config");
+}
+
 pub fn edit_file(file_path: &str, editor: &str){
     match Command::new(&editor)
         .arg(file_path) 
@@ -202,7 +212,14 @@ pub fn config_write(group: &str, label: &str, entry: &str, home_dir: &str, mode:
                 read_label(segment, group, home_dir)
             }
             else{
-                read_label(segment, group, home_dir).split(entry).collect::<String>()
+                read_label(segment, group, home_dir).split_whitespace().filter_map(|line|{
+                    if *line != *entry{
+                        Some(line.to_owned() + "\n")
+                    }
+                    else{
+                        None
+                    }
+                }).collect::<String>()
             };
         
         if segment == label && mode{

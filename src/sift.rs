@@ -8,6 +8,15 @@ use std::{
 }; 
 use crate::util;
 
+pub fn invalid_flag(){
+    eprintln!(
+        "{} Invalid flag! (use -h for help)",
+        "[!!!]".red()
+    );
+    
+    std::process::exit(1);
+}
+
 pub fn missing_editor(editor: &mut String){
     match env::var("EDITOR"){
         Ok(extract) => *editor = extract,
