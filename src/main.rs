@@ -5,7 +5,7 @@ mod flag;
 use std::{
     fs,
     env, 
-    collections::HashSet, ascii::AsciiExt, 
+    collections::HashSet, 
 }; 
 use colored::Colorize;
 
@@ -141,7 +141,8 @@ fn parser(home_dir: &str){
     let p_args: Vec<_> = env::args().collect();
 
     let mut args: Vec<String> = Vec::new();
-    let mut flags = HashSet::<String>::new();
+    let mut flags = HashSet::new();
+    let mut passed = HashSet::new();
     let mut mode = None; 
 
     if p_args.len() > 1{
@@ -175,7 +176,17 @@ fn parser(home_dir: &str){
                 }           
             }
             else{
-                args.push(arg.clone());
+                if passed.contains(arg){
+                    eprintln!(
+                        "{} Removing duplicate argument ({})",
+                        "[!]".yellow(),
+                        arg.yellow()
+                    );
+                }
+                else{
+                    passed.insert(arg);
+                    args.push(arg.to_owned());
+                }
             }
         }
     

@@ -3,7 +3,7 @@ use crate::util;
 use std::{
     fs,
     path::Path,
-    process::Command,
+    process::{Command, Stdio},
     io::ErrorKind,
 };
 use colored::Colorize;
@@ -240,6 +240,12 @@ pub fn sync_package(home_dir: &str, group: &str){
         .filter_map(|package|{
             num_packages += 1;
 
+            let handle = Command::new("pacman")
+                .args(["-Sg", package])
+                .stdout(Stdio::piped())
+                .output()
+                .unwrap();
+
             if Command::new("pacman")
                 .args(["-Q", package])
                 .output()
@@ -254,14 +260,52 @@ pub fn sync_package(home_dir: &str, group: &str){
                 );
                 None
             }
-            else{
-                if Command::new("pacman")
-                    .args(["-Ss", &("^".to_owned() + &package + "$")])
-                    .output()
+            else if handle.status.success(){
+                let missing = String::from_utf8(handle.stdout)
                     .unwrap()
-                    .status
-                    .success()
-                {
+                    .split_whitespace()
+                    .filter_map(|entry|{
+                        if entry != package{
+                            Some(entry.to_owned())
+                        }
+                        else{
+                            None
+                        }
+                    })
+                    .any(|entry|{
+                        !Command::new("pacman")
+                            .args(["-Q", &entry])
+                            .output()
+                            .unwrap()
+                            .status
+                            .success()
+                });
+
+                if !missing{
+                    eprintln!(
+                        "{} Package group ({}) already installed to system!",
+                        "[!]".yellow(),
+                        package.yellow()
+                    );
+                    None
+                }
+                else{
+                    println!(
+                        "{} Installing package group ({}) to system...",
+                        "[+]".purple(),
+                        package.purple()
+                    );
+                    
+                    Some(package.to_owned())                   
+                }
+            }
+            else{
+                let handle_package = Command::new("pacman")
+                    .args(["-Ss", &("^".to_owned() + package + "$")])
+                    .output()
+                    .unwrap();
+                
+                if handle_package.status.success(){
                     println!(
                         "{} Installing package ({}) to system...",
                         "[+]".purple(),

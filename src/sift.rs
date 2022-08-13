@@ -4,7 +4,7 @@ use std::{
     env,
     path::{Path, PathBuf}, 
     process::Command,
-    collections::HashSet, 
+    collections::HashSet, ascii::AsciiExt, 
 }; 
 use crate::util;
 
@@ -80,6 +80,7 @@ pub fn missing_group(home_dir: &str, args: &mut Vec<String>, group: &mut String)
     *group = args[0].clone();
     args.remove(0);
 }
+
 pub fn missing_flag(flags: &HashSet<String>){
     if flags.is_empty(){
         eprintln!(
@@ -89,6 +90,7 @@ pub fn missing_flag(flags: &HashSet<String>){
         std::process::exit(1);
     }
 }
+
 pub fn missing_args(args: &mut Vec<String>, len: usize){
     if args.len() < len{
         eprintln!(
@@ -98,6 +100,7 @@ pub fn missing_args(args: &mut Vec<String>, len: usize){
         std::process::exit(1);
     }
 }
+
 pub fn invalid_groups(home_dir: &str, args: &mut Vec<String>, mode: bool){
     *args = args.clone()
         .into_iter()
@@ -132,32 +135,60 @@ pub fn invalid_groups(home_dir: &str, args: &mut Vec<String>, mode: bool){
             }
     }).collect();
 }
+
 pub fn invalid_packages(home_dir: &str, args: &mut Vec<String>, mode: bool, group: &str){
+    let mut passed = HashSet::new();
+
     *args = args.clone()
         .into_iter()
         .filter_map(|package|{
-            let exists = util::read_label("[PACKAGES]", group, home_dir)
-                .split_whitespace()
-                .any(|entry| package == entry);
+            if passed.contains(&package){
+                eprintln!(
+                    "{} Removing duplicate argument ({})!",
+                    "[!]".yellow(),
+                    package.yellow()
+                );
+                None
+            }
+            else{
+                passed.insert(package.to_owned());
 
-            if mode{
-                if exists{
-                    eprintln!(
-                        "{} Package ({}) already installed to group!",
-                        "[!]".yellow(),
-                        package.yellow()
-                    );
-                    None
+                let exists = util::read_label("[PACKAGES]", group, home_dir)
+                    .split_whitespace()
+                    .any(|entry| package == entry);
+    
+                if mode{
+                    if exists{
+                        eprintln!(
+                            "{} Package ({}) already installed to group!",
+                            "[!]".yellow(),
+                            package.yellow()
+                        );
+                        None
+                    }
+                    else{
+                        let handle = Command::new("pacman")
+                            .args(["-Ss", &("^".to_owned() + &package + "$")])
+                            .output()
+                            .unwrap();
+    
+                        if !handle.status.success(){ 
+                            eprintln!(
+                                "{} Package ({}) does not exist in repository!",
+                                "[!]".yellow(),
+                                package.yellow()
+                            );
+                            None
+                        }
+                        else{
+                            Some(package)
+                        }
+                    }
                 }
                 else{
-                    let handle = Command::new("pacman")
-                        .args(["-Ss", &("^".to_owned() + &package + "$")])
-                        .output()
-                        .unwrap();
-
-                    if !handle.status.success(){
+                    if !exists{
                         eprintln!(
-                            "{} Package ({}) does not exist in repository!",
+                            "{} Package ({}) does not exist in group!",
                             "[!]".yellow(),
                             package.yellow()
                         );
@@ -168,47 +199,48 @@ pub fn invalid_packages(home_dir: &str, args: &mut Vec<String>, mode: bool, grou
                     }
                 }
             }
-            else{
-                if !exists{
-                    eprintln!(
-                        "{} Package ({}) does not exist in group!",
-                        "[!]".yellow(),
-                        package.yellow()
-                    );
-                    None
-                }
-                else{
-                    Some(package)
-                }
-            }
     }).collect();
 }
+
 pub fn invalid_configs(home_dir: &str, args: &mut Vec<String>, mode: bool, group: &str){
+    let mut passed = HashSet::new();
+
     *args = args.clone()
         .into_iter()
         .filter_map(|config|{
             if mode{
-                
                 match fs::canonicalize(PathBuf::from(&config)){
                     Ok(true_path) =>{
                         let true_path = true_path.into_os_string()
                             .into_string()
                             .unwrap();
 
-                        let contains = util::read_label("[CONFIGS]", group, home_dir)
-                            .split_whitespace()
-                            .any(|entry| true_path == entry);
-
-                        if contains{
+                        if passed.contains(&true_path){
                             eprintln!(
-                                "{} Config ({}) already installed to group!",
+                                "{} Removing duplicate argument ({})!",
                                 "[!]".yellow(),
                                 config.yellow()
                             );
                             None
                         }
                         else{
-                            Some(true_path)
+                            passed.insert(true_path.to_owned());
+
+                            let contains = util::read_label("[CONFIGS]", group, home_dir)
+                                .split_whitespace()
+                                .any(|entry| true_path == entry);
+    
+                            if contains{
+                                eprintln!(
+                                    "{} Config ({}) already installed to group!",
+                                    "[!]".yellow(),
+                                    config.yellow()
+                                );
+                                None
+                            }
+                            else{
+                                Some(true_path)
+                            }
                         }
                     }
                     Err(_) =>{
@@ -231,84 +263,123 @@ pub fn invalid_configs(home_dir: &str, args: &mut Vec<String>, mode: bool, group
                         config == entry.split('/').last().unwrap()
                     });
 
-                if !contains{
+                if passed.contains(&config_path){
                     eprintln!(
-                        "{} Config ({}) does not exist in group!",
+                        "{} Removing duplicate argument ({})!",
                         "[!]".yellow(),
                         config.yellow()
-                    );                               
-                    None
+                    );
+                    None   
                 }
                 else{
-                    Some(config_path)
+                    passed.insert(config_path.to_owned());
+
+                    if !contains{
+                        eprintln!(
+                            "{} Config ({}) does not exist in group!",
+                            "[!]".yellow(),
+                            config.yellow()
+                        );                               
+                        None
+                    }
+                    else{
+                        Some(config_path)
+                    }
                 }
             }
     }).collect();
 }
+
 pub fn invalid_scripts(home_dir: &str, args: &mut Vec<String>, mode: bool, group: &str){
+    let mut passed = HashSet::new();
+
     *args = args.clone()
         .into_iter()
         .filter_map(|script|{
             if mode{
+                let mut script_name = String::new();
+
                 let contains = util::read_label("[SCRIPTS]", group, home_dir)
                     .split_whitespace()
-                    .any(|entry| script.split('/').last().unwrap() == entry);
+                    .any(|entry|{
+                        script_name = script.split('/').last().unwrap().to_string();
+                        script_name == entry
+                    });
+                
+                if passed.contains(&script_name){
+                    eprintln!(
+                        "{} Removing duplicate argument ({})",
+                        "[!]".yellow(),
+                        script_name.yellow()
+                    );
+                    None
+                }
+                else{
+                    passed.insert(script_name.to_owned());
 
-                match fs::canonicalize(&script){
-                    Ok(_) =>{
-                        let true_name =
-                            if script.ends_with('/'){ script[..script.len()-1].to_owned() }
-                            else{ script };
-
-                        if contains{
-                            eprintln!(
-                                "{} Script ({}) already installed to group!",
-                                "[!]".yellow(),
-                                true_name.yellow()
-                            );
-                            None
-                        }
-                        else{
-                            if !Path::new(&true_name).is_file(){
+                    match fs::canonicalize(&script){
+                        Ok(_) =>{
+                            if contains{
                                 eprintln!(
-                                    "{} Script ({}) is not a file!",
+                                    "{} Script ({}) already installed to group!",
                                     "[!]".yellow(),
-                                    true_name.yellow()
+                                    script_name.yellow()
                                 );
-
                                 None
                             }
                             else{
-                                Some(true_name)
-                            }
-                        }                                   
-                    }
-                    Err(_) =>{
-                        eprintln!(
-                            "{} Path to script ({}) does not exist!",
-                            "[!]".yellow(),
-                            script.yellow()
-                        );
-
-                        None
+                                if !Path::new(&script).is_file(){
+                                    eprintln!(
+                                        "{} Script ({}) is not a file!",
+                                        "[!]".yellow(),
+                                        script.yellow()
+                                    );
+    
+                                    None
+                                }
+                                else{
+                                    Some(script)
+                                }
+                            }                                   
+                        }
+                        Err(_) =>{
+                            eprintln!(
+                                "{} Path to script ({}) does not exist!",
+                                "[!]".yellow(),
+                                script.yellow()
+                            );
+                            None
+                        }
                     }
                 }
             }            
             else{
-                let contains = util::read_label("[SCRIPTS]", group, home_dir)
-                    .split_whitespace()
-                    .any(|entry| script == entry );
-
-                if !contains{
+                if passed.contains(&script){
                     eprintln!(
-                        "{} Script ({}) does not exist in group!",
+                        "{} Removing duplicate argument ({})",
                         "[!]".yellow(),
                         script.yellow()
                     );
                     None
                 }
                 else{
-                    Some(script)
+                    passed.insert(script.to_owned());
+
+                    let contains = util::read_label("[SCRIPTS]", group, home_dir)
+                        .split_whitespace()
+                        .any(|entry| script == entry );
+    
+                    if !contains{
+                        eprintln!(
+                            "{} Script ({}) does not exist in group!",
+                            "[!]".yellow(),
+                            script.yellow()
+                        );
+                        None
+                    }
+                    else{
+                        Some(script)
+                    }
                 }
             }
     }).collect();
