@@ -4,7 +4,7 @@ use std::{
     env,
     path::{Path, PathBuf}, 
     process::Command,
-    collections::HashSet, ascii::AsciiExt, 
+    collections::HashSet, 
 }; 
 use crate::util;
 
@@ -61,6 +61,12 @@ pub fn missing_editor(editor: &mut String){
 }
 
 pub fn missing_group(home_dir: &str, args: &mut Vec<String>, group: &mut String){
+    let excludes = vec![
+        String::from(".git"), 
+        String::from(".."), 
+        String::from(".")
+    ];
+
     if args.is_empty(){
         eprintln!(
             "{} Expected group! (use -h for help)",
@@ -69,7 +75,7 @@ pub fn missing_group(home_dir: &str, args: &mut Vec<String>, group: &mut String)
         std::process::exit(1);
     }
 
-    if !Path::new(&(home_dir.to_owned() + &args[0])).is_dir(){
+    if !Path::new(&(home_dir.to_owned() + &args[0])).is_dir() || excludes.contains(&args[0]){
         eprintln!(
             "{} Invalid group ({})! (use -h for help)",
             "[!!!]".red(),
@@ -102,41 +108,62 @@ pub fn missing_args(args: &mut Vec<String>, len: usize){
 }
 
 pub fn invalid_groups(home_dir: &str, args: &mut Vec<String>, mode: bool){
+    let excludes = vec![
+        String::from(".git"), 
+        String::from(".."), 
+        String::from(".")
+    ];
+
     *args = args.clone()
         .into_iter()
         .filter_map(|group|{
             let exists = Path::new(&(home_dir.to_owned() + &group)).is_dir();
 
-            if mode{
-                if exists{
-                    eprintln!(
-                        "{} Group ({}) already installed!",
-                        "[!]".yellow(),
-                        group.yellow()
-                    );
-                    None
-                }
-                else{
-                    Some(group)
-                }
+            if excludes.contains(&group){
+                eprintln!(
+                    "{} Invalid group ({})! (use -h for help)",
+                    "[!]".yellow(),
+                    &args[0].yellow()
+                );
+                None
             }
             else{
-                if !exists{
-                    eprintln!(
-                        "{} Group ({}) does not exist!",
-                        "[!]".yellow(),
-                        group.yellow()
-                    );
-                    None
+                if mode{
+                    if exists{
+                        eprintln!(
+                            "{} Group ({}) already installed!",
+                            "[!]".yellow(),
+                            group.yellow()
+                        );
+                        None
+                    }
+                    else{
+                        Some(group)
+                    }
                 }
                 else{
-                    Some(group)
+                    if !exists{
+                        eprintln!(
+                            "{} Group ({}) does not exist!",
+                            "[!]".yellow(),
+                            group.yellow()
+                        );
+                        None
+                    }
+                    else{
+                        Some(group)
+                    }
                 }
             }
     }).collect();
 }
 
 pub fn invalid_packages(home_dir: &str, args: &mut Vec<String>, mode: bool, group: &str){
+    println!(
+        "{} Processing arguments. Please wait...",
+        "[*]".magenta()
+    );
+
     let mut passed = HashSet::new();
 
     *args = args.clone()
@@ -203,6 +230,11 @@ pub fn invalid_packages(home_dir: &str, args: &mut Vec<String>, mode: bool, grou
 }
 
 pub fn invalid_configs(home_dir: &str, args: &mut Vec<String>, mode: bool, group: &str){
+    println!(
+        "{} Processing arguments. Please wait...",
+        "[*]".magenta()
+    );
+
     let mut passed = HashSet::new();
 
     *args = args.clone()
@@ -226,9 +258,12 @@ pub fn invalid_configs(home_dir: &str, args: &mut Vec<String>, mode: bool, group
                         else{
                             passed.insert(true_path.to_owned());
 
+                            let mut generic_path = true_path.to_owned();
+                            util::to_template(&mut generic_path);
+
                             let contains = util::read_label("[CONFIGS]", group, home_dir)
                                 .split_whitespace()
-                                .any(|entry| true_path == entry);
+                                .any(|entry| generic_path == entry);
     
                             if contains{
                                 eprintln!(
@@ -291,6 +326,11 @@ pub fn invalid_configs(home_dir: &str, args: &mut Vec<String>, mode: bool, group
 }
 
 pub fn invalid_scripts(home_dir: &str, args: &mut Vec<String>, mode: bool, group: &str){
+    println!(
+        "{} Processing arguments. Please wait...",
+        "[*]".magenta()
+    );
+
     let mut passed = HashSet::new();
 
     *args = args.clone()

@@ -62,23 +62,26 @@ pub fn install_config(mut args: Vec<String>, home_dir: &str){
 
         fs::create_dir(home_dir.to_owned() + &group + "/configs");
 
-        for arg in &args{
-            util::config_write(&group, "[CONFIGS]", arg, home_dir, true);
-            let arg_name = arg.split('/').last().unwrap();
+        for arg in &mut args{
+            let mut config = arg.to_owned();
+            let config_name = arg.split('/').last().unwrap();
 
             util::copy_dir(
-                arg, 
+                &arg, 
                 home_dir.to_owned()
                     + &group
                     + "/configs/"
-                    + arg_name
+                    + config_name
             );
+            util::to_template(&mut config);
+            util::config_write(&group, "[CONFIGS]", &config, home_dir, true);
+
             println!(
                 "{} Installed {}/{}/{}",
                 "[+]".green(),
                 group.green(),
                 "configs".green(),
-                arg_name.green()
+                config_name.green()
             );
         }
 
@@ -376,12 +379,15 @@ pub fn sync_config(home_dir: &str, group: &str){
     if !configs.is_empty(){
         for config in &configs
         {
-            let config_name = config.split('/').last().unwrap();
-            let config_path = home_dir.to_owned() + group + "/configs/" + config_name;
+            let mut path_dst = config.to_owned();
+            util::to_userdir(&mut path_dst);
 
-            if Path::new(&config_path).exists(){
+            let config_name = config.split('/').last().unwrap();
+            let path_src = home_dir.to_owned() + group + "/configs/" + config_name;
+
+            if Path::new(&path_src).exists(){
                 num_configs += 1;
-                util::copy_dir(config_path, config);
+                util::copy_dir(path_src, path_dst);
     
                 println!(
                     "{} Synced config ({})!",
@@ -396,7 +402,7 @@ pub fn sync_config(home_dir: &str, group: &str){
                     config_name.yellow()
                 );
 
-                util::config_write(group, "[CONFIGS]", config, home_dir, false);
+                util::config_write(group, "[CONFIGS]", &config, home_dir, false);
             }
         }
 
@@ -504,13 +510,22 @@ pub fn query_help(){
 }
 
 pub fn query_group(args: Vec<String>, home_dir: &str){
+    let excludes = vec![
+        String::from(".git"), 
+        String::from(".."), 
+        String::from(".")
+    ];
+
     //Credit Raforawesome (programming God)
     let groups: Vec<fs::DirEntry> = fs::read_dir(home_dir).unwrap()
         .filter(|entry|{
+            let name = entry.as_ref()
+                .unwrap().file_name()
+                .into_string().unwrap();
             let entry = entry.as_ref().unwrap()
                 .file_type().unwrap();
 
-            entry.is_dir()
+            entry.is_dir() && !excludes.contains(&name)
         }).map(|x| x.unwrap()).collect();
 
     if !groups.is_empty(){

@@ -4,8 +4,32 @@ use std::{
     path::Path, 
     io::prelude::*,
     process::Command,
-    io::ErrorKind, ascii::AsciiExt
+    io::ErrorKind,
 }; 
+
+pub fn to_userdir(config: &mut String){
+    let home = dirs::home_dir()
+        .unwrap()
+        .into_os_string()
+        .into_string()
+        .unwrap();
+
+    if let Some(segments) = config.split_once("home_dir")
+    {
+        *config = home + &segments.1; 
+    }
+}
+
+pub fn to_template(config: &mut String){
+    if let Some(segments) = config.split_once(&dirs::home_dir()
+        .unwrap()
+        .into_os_string()
+        .into_string()
+        .unwrap())
+    {
+        *config = "home_dir".to_owned() + &segments.1;
+    }
+}
 
 pub fn help_menu(){
     println!("{} alps <operation> [...]", "usage:".white());

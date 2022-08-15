@@ -136,8 +136,6 @@ fn edit(flags: HashSet<String>, args: Vec<String>, home_dir: &str){
 }
 
 fn parser(home_dir: &str){
-    fs::create_dir(home_dir);
-
     let p_args: Vec<_> = env::args().collect();
 
     let mut args: Vec<String> = Vec::new();
@@ -230,5 +228,6 @@ fn main(){
         .into_string()
         .unwrap() + "/.config/alps/";
 
+    fs::create_dir_all(&home_dir);
     parser(&home_dir);
 }
