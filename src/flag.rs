@@ -54,37 +54,41 @@ pub fn install_package(mut args: Vec<String>, home_dir: &str){
 }
 
 pub fn install_config(mut args: Vec<String>, home_dir: &str){
-        let mut group = String::new();
+    let mut group = String::new();
 
-        sift::missing_group(home_dir, &mut args, &mut group);
-        sift::missing_args(&mut args, 1);
-        sift::invalid_configs(home_dir, &mut args, true, &group);
+    sift::missing_group(home_dir, &mut args, &mut group);
+    sift::missing_args(&mut args, 1);
+    sift::invalid_configs(home_dir, &mut args, true, &group);
 
-        fs::create_dir(home_dir.to_owned() + &group + "/configs");
+    fs::create_dir(home_dir.to_owned() + &group + "/configs");
 
-        for arg in &mut args{
-            let mut config = arg.to_owned();
-            let config_name = arg.split('/').last().unwrap();
+    for arg in &mut args{
+        let mut config = arg.to_owned();
+        util::to_template(&mut config);
 
-            util::copy_dir(
-                &arg, 
-                home_dir.to_owned()
-                    + &group
-                    + "/configs/"
-                    + config_name
-            );
-            util::to_template(&mut config);
-            util::config_write(&group, "[CONFIGS]", &config, home_dir, true);
+        let (_, config_name) = arg.rsplit_once('/').unwrap();
+        let postfix = "_".to_owned()
+            + &(util::dup_count(config_name, &group, home_dir)+1).to_string();
+        config = config + &postfix;
 
-            println!(
-                "{} Installed {}/{}/{}",
-                "[+]".green(),
-                group.green(),
-                "configs".green(),
-                config_name.green()
-            );
-        }
+        util::copy_dir(
+            &arg, 
+            home_dir.to_owned()
+                + &group
+                + "/configs/"
+                + config_name
+                + &postfix
+        );
+        util::config_write(&group, "[CONFIGS]", &config, home_dir, true);
 
+        println!(
+            "{} Installed {}/{}/{}",
+            "[+]".green(),
+            group.green(),
+            "configs".green(),
+            config_name.green()
+        );
+    }
 }
 
 pub fn install_script(mut args: Vec<String>, home_dir: &str){
@@ -175,10 +179,11 @@ pub fn remove_config(mut args: Vec<String>, home_dir: &str){
 
         let config_name = arg.split('/').last().unwrap();
         let config_path = home_dir.to_owned() + &group + "/configs/" + config_name;
+
         if Path::new(&arg).is_dir(){
             fs::remove_dir_all(config_path);
         }
-        else if Path::new(&arg).is_file(){
+        else{
             fs::remove_file(config_path);
         }
 
@@ -380,6 +385,11 @@ pub fn sync_config(home_dir: &str, group: &str){
         for config in &configs
         {
             let mut path_dst = config.to_owned();
+            if let Some(name) = config.rsplit_once('_'){
+                if name.1.parse::<usize>().is_ok(){
+                    path_dst = name.0.to_owned();
+                }
+            }
             util::to_userdir(&mut path_dst);
 
             let config_name = config.split('/').last().unwrap();
@@ -596,7 +606,19 @@ pub fn query_config(mut args: Vec<String>, home_dir: &str){
     let mut group = String::new();
     sift::missing_group(home_dir, &mut args, &mut group);
     util::find(args, "[CONFIGS]", home_dir, &group, |config|{
-        config.split('/').last().unwrap()
+        let x = config.rsplit_once('/').unwrap_or((config, config)).1;
+
+        if let Some(name) = x.rsplit_once('_'){
+            if name.1.parse::<usize>().is_ok(){
+               name.0
+            }
+            else{
+                x
+            }
+        }
+        else{
+            x
+        }
     });
 }
 

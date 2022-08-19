@@ -7,6 +7,26 @@ use std::{
     io::ErrorKind,
 }; 
 
+pub fn dup_count(config: &str, group: &str, home_dir: &str)-> usize{
+    let mut highest = 0;
+
+    for entry in read_label("[CONFIGS]", group, home_dir)
+        .split_whitespace()
+    {
+        let (name, index) = entry.rsplit_once('/').unwrap_or((entry, entry)).1
+            .rsplit_once('_').unwrap_or((entry, entry));
+        if config == name{
+            if let Ok(index) = index.parse::<usize>(){
+                if index > highest{
+                    highest = index; 
+                }
+            }
+        }
+
+    }
+    highest
+}
+
 pub fn to_userdir(config: &mut String){
     let home = dirs::home_dir()
         .unwrap()
@@ -75,19 +95,25 @@ pub fn find(args: Vec<String>, label: &str, home_dir: &str, group: &String, muta
         let mut status = 0;
 
         for arg in &args{
-            let contains = text
-                .split_whitespace()
-                .any(|package| arg == mutate(package));
+            let mut found = vec![];
+
+            for package in text.split_whitespace(){
+                if arg == mutate(package){
+                    found.push(package);
+                }
+            }
 
             let label = &label[1..label.len()-1].to_lowercase();
-            if contains{
-                println!(
-                    "{} Found {}/{}/{} ",
-                    "[?]".blue(),
-                    group.blue(),
-                    label.blue(),
-                    arg.blue()
-                );
+            if !found.is_empty(){
+                for found in found{
+                    println!(
+                        "{} Found {}/{}/{} ",
+                        "[?]".blue(),
+                        group.blue(),
+                        label.blue(),
+                        found.blue()
+                    );
+                }
             }
             else{
                 eprintln!(

@@ -263,7 +263,7 @@ pub fn invalid_configs(home_dir: &str, args: &mut Vec<String>, mode: bool, group
 
                             let contains = util::read_label("[CONFIGS]", group, home_dir)
                                 .split_whitespace()
-                                .any(|entry| generic_path == entry);
+                                .any(|entry| generic_path == entry.rsplit_once('_').unwrap_or((entry, entry)).0);
     
                             if contains{
                                 eprintln!(
