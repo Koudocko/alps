@@ -385,9 +385,11 @@ pub fn sync_config(home_dir: &str, group: &str){
         for config in &configs
         {
             let mut path_dst = config.to_owned();
-            if let Some(name) = config.rsplit_once('_'){
+            if let Some(name) = config.split('/').last().unwrap()
+                .rsplit_once('_')
+            {
                 if name.1.parse::<usize>().is_ok(){
-                    path_dst = name.0.to_owned();
+                    path_dst = config.rsplit_once('_').unwrap().0.to_owned();
                 }
             }
             util::to_userdir(&mut path_dst);
