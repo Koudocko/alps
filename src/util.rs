@@ -201,7 +201,7 @@ where
             if error.kind() == ErrorKind::PermissionDenied
                 && 
                 Command::new("sudo")
-                    .args(["cp", "-r", src.as_ref().as_os_str().to_str().unwrap(), parent.to_str().unwrap()])
+                    .args(["cp", "-r", "-T", src.as_ref().as_os_str().to_str().unwrap(), dst.as_ref().as_os_str().to_str().unwrap()])
                     .output()
                     .is_err()
             {
