@@ -7,11 +7,23 @@ use std::{
     io::ErrorKind,
 }; 
 
+pub fn get_entries(text: &String)-> impl Iterator<Item = &str>{ 
+    text.split(['\r', '\n'])
+        .filter(|x|{
+            if x.is_empty(){
+                false
+            }
+            else{
+                true
+            }
+        })
+}
+
+
 pub fn dup_count(config: &str, group: &str, home_dir: &str)-> usize{
     let mut highest = 0;
 
-    for entry in read_label("[CONFIGS]", group, home_dir)
-        .split_whitespace()
+    for entry in get_entries(&read_label("[CONFIGS]", group, home_dir))
     {
         let (name, index) = entry.rsplit_once('/').unwrap_or((entry, entry)).1
             .rsplit_once('_').unwrap_or((entry, entry));
@@ -97,7 +109,7 @@ pub fn find(args: Vec<String>, label: &str, home_dir: &str, group: &String, muta
         for arg in &args{
             let mut found = vec![];
 
-            for package in text.split_whitespace(){
+            for package in get_entries(&text){
                 if arg == mutate(package){
                     found.push(package);
                 }
@@ -131,7 +143,7 @@ pub fn find(args: Vec<String>, label: &str, home_dir: &str, group: &String, muta
     }
     else{
         let mut count = 0;
-        for package in text.split_whitespace(){
+        for package in get_entries(&text){
             print!("{}, ", mutate(package).blue());
             count += 1;
         }
@@ -145,8 +157,8 @@ pub fn reformat_config(labels: &Vec<String>, group: &str, home_dir: &str){
     for label in labels{
         config_text.push_str(&(label.to_owned() + "\n"));
 
-        for entry in read_label(label, group, home_dir).split_whitespace(){
-            config_text.push_str (&(entry.to_owned() + "\n"));
+        for entry in get_entries(&read_label(label, group, home_dir)){
+            config_text.push_str(&(entry.to_owned() + "\n"));
         }
 
         if label != labels.last().unwrap(){
@@ -264,7 +276,7 @@ pub fn config_write(group: &str, label: &str, entry: &str, home_dir: &str, mode:
                 read_label(segment, group, home_dir)
             }
             else{
-                read_label(segment, group, home_dir).split_whitespace().filter_map(|line|{
+                get_entries(&read_label(segment, group, home_dir)).filter_map(|line|{
                     if *line != *entry{
                         Some(line.to_owned() + "\n")
                     }

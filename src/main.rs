@@ -182,7 +182,9 @@ fn parser(home_dir: &str){
                     );
                 }
                 else{
-                    passed.insert(arg);
+                    if !args.is_empty() && *arg != args[0]{
+                        passed.insert(arg);
+                    }
                     args.push(arg.to_owned());
                 }
             }

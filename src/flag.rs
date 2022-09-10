@@ -180,7 +180,7 @@ pub fn remove_config(mut args: Vec<String>, home_dir: &str){
         let config_name = arg.split('/').last().unwrap();
         let config_path = home_dir.to_owned() + &group + "/configs/" + config_name;
 
-        if Path::new(&arg).is_dir(){
+        if Path::new(&config_path).is_dir(){
             fs::remove_dir_all(config_path);
         }
         else{
@@ -243,8 +243,7 @@ pub fn sync_package(home_dir: &str, group: &str){
 
     let mut num_packages = 0;
 
-    let packages = util::read_label("[PACKAGES]", group, home_dir)
-        .split_whitespace()
+    let packages = util::get_entries(&util::read_label("[PACKAGES]", group, home_dir))
         .filter_map(|package|{
             num_packages += 1;
 
@@ -376,9 +375,8 @@ pub fn sync_config(home_dir: &str, group: &str){
 
     let mut num_configs = 0;
 
-    let configs = util::read_label("[CONFIGS]", group, home_dir)
-        .split_whitespace()
-        .map(|config| config.to_owned() )
+    let configs = util::get_entries(&util::read_label("[CONFIGS]", group, home_dir))
+        .map(|config| config.to_owned())
         .collect::<Vec<String>>();
 
     if !configs.is_empty(){
@@ -443,8 +441,7 @@ pub fn sync_script(home_dir: &str, group: &str){
 
     let mut num_scripts = 0;
 
-    let scripts = util::read_label("[SCRIPTS]", group, home_dir)
-        .split_whitespace()
+    let scripts = util::get_entries(&util::read_label("[SCRIPTS]", group, home_dir))
         .map(|script| script.to_owned() )
         .collect::<Vec<String>>();
 
@@ -582,9 +579,9 @@ pub fn query_group(args: Vec<String>, home_dir: &str){
                     "{} {} :: ({}) packages :: ({}) configs :: ({}) scripts", 
                     "[?]".blue(),
                     group.blue(),
-                    util::read_label("[PACKAGES]", &group, home_dir).split_whitespace().count(),
-                    util::read_label("[CONFIGS]", &group, home_dir).split_whitespace().count(),
-                    util::read_label("[SCRIPTS]", &group, home_dir).split_whitespace().count()
+                    util::get_entries(&util::read_label("[PACKAGES]", &group, home_dir)).count(),
+                    util::get_entries(&util::read_label("[CONFIGS]", &group, home_dir)).count(),
+                    util::get_entries(&util::read_label("[SCRIPTS]", &group, home_dir)).count()
                 );
             }
             println!("({}) groups found...", groups.len());

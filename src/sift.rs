@@ -180,8 +180,7 @@ pub fn invalid_packages(home_dir: &str, args: &mut Vec<String>, mode: bool, grou
             else{
                 passed.insert(package.to_owned());
 
-                let exists = util::read_label("[PACKAGES]", group, home_dir)
-                    .split_whitespace()
+                let exists = util::get_entries(&util::read_label("[PACKAGES]", group, home_dir))
                     .any(|entry| package == entry);
     
                 if mode{
@@ -261,8 +260,7 @@ pub fn invalid_configs(home_dir: &str, args: &mut Vec<String>, mode: bool, group
                             let mut generic_path = true_path.to_owned();
                             util::to_template(&mut generic_path);
 
-                            let contains = util::read_label("[CONFIGS]", group, home_dir)
-                                .split_whitespace()
+                            let contains = util::get_entries(&util::read_label("[CONFIGS]", group, home_dir))
                                 .any(|entry| generic_path == entry.rsplit_once('_').unwrap_or((entry, entry)).0);
     
                             if contains{
@@ -291,8 +289,7 @@ pub fn invalid_configs(home_dir: &str, args: &mut Vec<String>, mode: bool, group
             }
             else{
                 let mut config_path = String::new();
-                let contains = util::read_label("[CONFIGS]", group, home_dir)
-                    .split_whitespace()
+                let contains = util::get_entries(&util::read_label("[CONFIGS]", group, home_dir))
                     .any(|entry|{
                         config_path = entry.to_string();
                         config == entry.split('/').last().unwrap()
@@ -339,8 +336,7 @@ pub fn invalid_scripts(home_dir: &str, args: &mut Vec<String>, mode: bool, group
             if mode{
                 let mut script_name = String::new();
 
-                let contains = util::read_label("[SCRIPTS]", group, home_dir)
-                    .split_whitespace()
+                let contains = util::get_entries(&util::read_label("[SCRIPTS]", group, home_dir))
                     .any(|entry|{
                         script_name = script.split('/').last().unwrap().to_string();
                         script_name == entry
@@ -405,8 +401,7 @@ pub fn invalid_scripts(home_dir: &str, args: &mut Vec<String>, mode: bool, group
                 else{
                     passed.insert(script.to_owned());
 
-                    let contains = util::read_label("[SCRIPTS]", group, home_dir)
-                        .split_whitespace()
+                    let contains = util::get_entries(&util::read_label("[SCRIPTS]", group, home_dir))
                         .any(|entry| script == entry );
     
                     if !contains{
