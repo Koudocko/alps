@@ -1,7 +1,4 @@
-<center>
-	<img src="misc/AlpsLogo.png" alt="alps"></img>
-	<h1> ALPS (Arch Linux Profile Synchronizer) </h1> 
-</center>
+<h1 align="center"> <img src="misc/AlpsLogo.png" alt="alps"> <br> ALPS (Arch Linux Profile Synchronizer) </h1> 
 
 ALPS is a minimal backup utility with the purpose of making sharing system configurations easier.
 
