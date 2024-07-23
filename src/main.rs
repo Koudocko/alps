@@ -161,7 +161,7 @@ fn parser(home_dir: &str){
             else if &arg[..1] == "-"{
                 for flag in arg[1..].chars(){
                     let flag = flag.to_string();
-    
+
                     match flag.as_str(){
                         "I" | "R" | "S" | "Q" | "E" =>{
                             sift::duplicate_operation(&mut mode, flag);
